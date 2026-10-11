@@ -1,7 +1,15 @@
 [workspace]
-members = ["core"]
+members = ["core", "capi", "wasm"]
 resolver = "2"
 
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+# size-optimized build for the browser: cargo build -p khcore-wasm --target wasm32-unknown-unknown --profile wasm
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

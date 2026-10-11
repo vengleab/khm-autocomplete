@@ -2,6 +2,13 @@
   "name": "khmer-autocomplete",
   "private": true,
   "type": "module",
-  "scripts": { "build": "python3 web/build_demo.py data/data.json", "test": "npm run build && node tests/check.mjs" },
-  "devDependencies": { "playwright": "^1.48.0" }
+  "scripts": {
+    "build": "python3 web/build_demo.py data/data.json",
+    "build:wasm": "sh scripts/build-wasm.sh && python3 web/build_demo.py data/data.json --wasm",
+    "test": "npm run build && node tests/check.mjs",
+    "test:wasm": "npm run build:wasm && node tests/wasm-parity.mjs && node tests/check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
 }

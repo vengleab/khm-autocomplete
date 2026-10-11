@@ -1,0 +1,15 @@
+[package]
+name = "khcore-capi"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI over khcore: JSON in/out over C strings, so the ABI stays small and stable"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "khcore_capi"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+khcore = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

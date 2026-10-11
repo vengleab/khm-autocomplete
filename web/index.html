@@ -805,7 +805,10 @@ function lev(a, b) {
 /* -------------------------------------------------------------------------- UI */
 const $ = id => document.getElementById(id);
 const ta = $("text");
-let engine = new Engine(SEED), saved = 0, completed = null, composing = false, current = [], mode = "khmer", typing = 0;
+// The engine behind the UI. web/index-wasm.html sets window.KH_MAKE_ENGINE to the Rust engine (WebAssembly);
+// the plain page uses the JS engine above, which stays the reference the Rust port is tested against.
+const makeEngine = window.KH_MAKE_ENGINE || (d => new Engine(d));
+let engine = makeEngine(SEED), saved = 0, completed = null, composing = false, current = [], mode = "khmer", typing = 0;
 const LATIN = /[A-Za-z'\-]+$/;
 
 function esc(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -997,7 +1000,7 @@ $("kbtoggle").addEventListener("click", () => {
 function showStats() {
   $("s-vocab").textContent = engine.words.length.toLocaleString();
   $("s-tokens").textContent = (engine.meta.tokens || engine.N).toLocaleString();
-  $("s-src").textContent = "Source: " + (engine.meta.source || "custom data file");
+  $("s-src").textContent = "Source: " + (engine.meta.source || "custom data file") + " · Engine: " + (engine.kind || "JavaScript");
 }
 $("loadbtn").addEventListener("click", () => $("file").click());
 $("file").addEventListener("change", e => {
@@ -1007,7 +1010,7 @@ $("file").addEventListener("change", e => {
     try {
       const d = JSON.parse(r.result);
       if (!Array.isArray(d.words) || !Array.isArray(d.freq) || d.words.length !== d.freq.length) throw new Error("This is not a file made by build_data.py.");
-      engine = new Engine(d); $("err").textContent = ""; showStats(); refresh();
+      engine = makeEngine(d); $("err").textContent = ""; showStats(); refresh();
     } catch (err) { $("err").textContent = "Could not load: " + err.message; }
   };
   r.readAsText(f); e.target.value = "";
