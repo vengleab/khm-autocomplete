@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root{color-scheme:light}body{margin:0}[hidden]{display:none!important}</style></head><body>
+<title>Khmer Autocomplete</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanuman:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;600&display=swap">
+<style>
+  /* Layout: one writing surface with a suggestion strip attached to it, an on-screen
+     Khmer keyboard under it, and a side column that shows how the engine read the text. */
+  :root {
+    --bg: #eef2f1;
+    --surface: #ffffff;
+    --surface-2: #e4ebe9;
+    --line: #cbd6d3;
+    --ink: #14201e;
+    --muted: #55645f;
+    --accent: #0a6b63;
+    --accent-ink: #ffffff;
+    --accent-soft: #d3ece8;
+    --warn: #8a5a00;
+    --warn-soft: #f6e8c8;
+    --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-kh: "Noto Sans Khmer", "Khmer OS", "Leelawadee UI", "Noto Sans", sans-serif;
+    --font-display: "Hanuman", "Noto Sans Khmer", serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1514; --surface: #162120; --surface-2: #1f2d2b; --line: #2c3d3a;
+      --ink: #e5eeec; --muted: #9bb0ab; --accent: #4fd0c2; --accent-ink: #06201d;
+      --accent-soft: #14423e; --warn: #f0c36a; --warn-soft: #3a2f12;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1514; --surface: #162120; --surface-2: #1f2d2b; --line: #2c3d3a;
+    --ink: #e5eeec; --muted: #9bb0ab; --accent: #4fd0c2; --accent-ink: #06201d;
+    --accent-soft: #14423e; --warn: #f0c36a; --warn-soft: #3a2f12;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-ui);
+    padding-inline: 16px; padding-block: 28px 48px;
+  }
+  .wrap { max-width: 1080px; margin-inline: auto; display: grid; gap: 20px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+  h1 { margin: 0; font-size: 1.6rem; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+  h1 .kh-title { font-family: var(--font-display); font-weight: 700; color: var(--accent); margin-right: 0.35em; }
+  header p { margin: 0; color: var(--muted); max-width: 46ch; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  .pad { padding: 16px; }
+  h2 { margin: 0 0 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+
+  .kh { font-family: var(--font-kh); line-height: 1.9; }
+
+  /* writing surface */
+  .editor { overflow: hidden; }
+  textarea#text {
+    display: block; width: 100%; min-height: 8.5rem; resize: vertical; border: 0; outline: 0;
+    background: var(--surface); color: var(--ink); padding: 16px;
+    font: 1.45rem/1.9 var(--font-kh);
+  }
+  .strip { border-top: 1px solid var(--line); background: var(--surface-2); padding: 10px 12px; min-height: 3.6rem;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .chip {
+    font: 1.15rem/1.5 var(--font-kh); display: inline-flex; align-items: center; gap: 8px;
+    padding: 2px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip:focus-visible, .key:focus-visible, .btn:focus-visible, .sample:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chip.first { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .chip .tag { font: 500 0.68rem/1 var(--font-mono); opacity: 0.75; }
+  .chip.fuzzy { border-style: dashed; border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+  .strip .empty { color: var(--muted); font-size: 0.9rem; }
+  .hint { padding: 8px 16px 10px; color: var(--muted); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 4px 16px; border-top: 1px solid var(--line); }
+  kbd { font: 500 0.75rem var(--font-mono); padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); }
+  .legend i { font-style: normal; font: 500 0.72rem var(--font-mono); padding: 1px 6px; border-radius: 4px; margin-right: 4px; }
+  .legend .l-c { background: var(--accent); color: var(--accent-ink); }
+  .legend .l-f { background: var(--warn-soft); color: var(--warn); border: 1px dashed var(--warn); }
+  .legend .l-n { background: var(--surface-2); border: 1px solid var(--line); }
+
+  /* samples */
+  .samples { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .samples span.lbl { color: var(--muted); font-size: 0.82rem; margin-right: 4px; }
+  .sample { font: 1.05rem/1.5 var(--font-kh); padding: 1px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .sample:hover { border-color: var(--accent); }
+
+  /* keyboard */
+  .kbhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .kbhead h2 { margin: 0; }
+  .btn { font: 500 0.82rem var(--font-ui); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .keys { display: flex; flex-wrap: wrap; gap: 5px; }
+  .keys + .keys { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .key { font: 1.2rem/1 var(--font-kh); min-width: 2.35rem; height: 2.5rem; padding: 0 8px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); cursor: pointer; user-select: none; }
+  .key:hover { background: var(--accent-soft); border-color: var(--accent); }
+  .key.wide { min-width: 5rem; font: 500 0.82rem var(--font-ui); }
+  .key .ghost { color: var(--muted); }
+
+  /* side panel */
+  .ctx { display: grid; gap: 8px; margin: 0 0 14px; }
+  .ctx div { display: grid; grid-template-columns: 5.2rem minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 0.85rem; }
+  .ctx dt { color: var(--muted); }
+  .ctx dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .seg { font: 1.05rem/1.7 var(--font-kh); }
+  .seg b { font-weight: 600; background: var(--accent-soft); border-radius: 4px; padding: 0 4px; }
+  .seg .sep { color: var(--line); margin: 0 3px; }
+  table.cand { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table.cand th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.72rem; padding: 0 0 4px; }
+  table.cand td { padding: 3px 0; vertical-align: middle; }
+  table.cand td.w { font: 1.05rem/1.5 var(--font-kh); width: 38%; }
+  table.cand td.k { font: 500 0.7rem var(--font-mono); color: var(--muted); width: 22%; }
+  table.cand td.p { font: 400 0.78rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .bar { height: 5px; border-radius: 3px; background: var(--accent); display: block; margin-top: 2px; }
+  .bar.fz { background: var(--warn); }
+  .none { color: var(--muted); font-size: 0.85rem; margin: 0; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }
+  .stats div { border-top: 2px solid var(--line); padding-top: 6px; }
+  .stats dt { font-size: 0.7rem; color: var(--muted); }
+  .stats dd { margin: 0; font: 500 1.1rem var(--font-mono); font-variant-numeric: tabular-nums; }
+  .src { font-size: 0.82rem; color: var(--muted); margin: 0 0 12px; overflow-wrap: anywhere; }
+  .note { font-size: 0.8rem; color: var(--muted); margin: 10px 0 0; }
+  .err { color: var(--warn); font-size: 0.82rem; margin: 8px 0 0; min-height: 1.2em; }
+  input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .modes { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .mode { font: 500 0.85rem var(--font-ui); padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .mode:hover { border-color: var(--accent); }
+  .mode:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mode[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .mode .sub { font: 400 0.72rem var(--font-mono); opacity: 0.8; margin-left: 6px; }
+  .chip .rom { font: 400 0.72rem var(--font-mono); opacity: 0.7; }
+  .rm { display: block; font: 400 0.68rem/1.2 var(--font-mono); color: var(--muted); }
+  .mono { font-family: var(--font-mono); font-size: 0.85rem; }
+  .chip.rule { border-style: dotted; border-color: var(--accent); background: var(--surface); }
+  .bar.rl { background: var(--muted); }
+  details.ref summary { cursor: pointer; font: 600 0.72rem var(--font-ui); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  details.ref[open] summary { margin-bottom: 10px; }
+  .ref p { font-size: 0.82rem; color: var(--muted); margin: 0 0 10px; }
+  table.rules { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-bottom: 12px; }
+  table.rules th { text-align: left; font: 500 0.7rem var(--font-ui); color: var(--muted); padding-bottom: 3px; }
+  table.rules td { padding: 1px 0; }
+  table.rules td.kh { font: 1.05rem/1.7 var(--font-kh); }
+  ul.cons { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  ul.cons li { display: inline-flex; align-items: baseline; gap: 4px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--line); font: 0.8rem var(--font-mono); }
+  ul.cons li .kh { font: 1.05rem/1.6 var(--font-kh); }
+  ul.cons li.a { background: var(--accent-soft); border-color: var(--accent-soft); }
+  .sp { display: inline-block; width: 0.55em; border-bottom: 2px solid var(--muted); margin-left: 0.35em; }
+  @media (prefers-reduced-motion: no-preference) { .chip, .key, .sample, .btn { transition: background-color .12s, border-color .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><span class="kh-title">ខ្មែរ</span>Khmer Autocomplete</h1>
+    <p>Type Khmer script, or type Khmer in Latin letters (Khmerlish) and convert it. Suggestions complete the word you are typing and predict the next one.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section class="card editor" aria-label="Writing area">
+        <div class="modes" role="group" aria-label="Input mode">
+          <button type="button" class="mode" id="m-khmer" aria-pressed="true"><span class="kh">ខ្មែរ</span> Khmer script</button>
+          <button type="button" class="mode" id="m-latin" aria-pressed="false">Latin input<span class="sub">Khmerlish</span></button>
+        </div>
+        <label for="text" class="sr" style="position:absolute;left:-9999px">Khmer text</label>
+        <textarea id="text" lang="km" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="វាយអក្សរខ្មែរនៅទីនេះ…"></textarea>
+        <div class="strip" id="strip" role="listbox" aria-label="Suggestions"></div>
+        <div class="hint">
+          <span id="hint-khmer"><kbd>Tab</kbd> accepts the first suggestion</span>
+          <span id="hint-latin" hidden>Type Khmer in Latin letters, then press <kbd>Space</kbd> to convert the word. <kbd>Tab</kbd> picks the first suggestion.</span>
+          <span class="legend" id="legend"><i class="l-c">word</i>completes · <i class="l-n">word</i>next word · <i class="l-f">~word</i>typo fix</span>
+        </div>
+      </section>
+
+      <div class="samples" id="samples"><span class="lbl">Try</span></div>
+
+      <section class="card pad" id="kbcard" aria-label="On-screen Khmer keyboard">
+        <div class="kbhead">
+          <h2>On-screen keyboard</h2>
+          <button class="btn" id="kbtoggle" type="button">Hide</button>
+        </div>
+        <div id="kb"></div>
+      </section>
+    </div>
+
+    <aside class="col" aria-label="How the engine read the text">
+      <section class="card pad">
+        <h2>What the engine sees</h2>
+        <dl class="ctx">
+          <div><dt id="l-seg">Segmented</dt><dd class="seg" id="c-seg">–</dd></div>
+          <div><dt>Previous</dt><dd class="kh" id="c-prev">–</dd></div>
+          <div><dt id="l-part">Typing</dt><dd class="kh" id="c-part">–</dd></div>
+        </dl>
+        <h2>Candidates</h2>
+        <div id="cands"></div>
+      </section>
+
+      <section class="card pad">
+        <h2>Language data</h2>
+        <dl class="stats">
+          <div><dt>Words</dt><dd id="s-vocab">0</dd></div>
+          <div><dt>Tokens</dt><dd id="s-tokens">0</dd></div>
+          <div><dt>Keys saved</dt><dd id="s-saved">0</dd></div>
+        </dl>
+        <p class="src" id="s-src"></p>
+        <button class="btn" id="loadbtn" type="button">Load data file</button>
+        <input type="file" id="file" accept=".json,application/json">
+        <p class="err" id="err" role="status"></p>
+        <p class="note">The built-in data is a small seed corpus. Build a full file from Khmer Wikipedia with <span style="font-family:var(--font-mono)">build_data.py</span> and load it here.</p>
+      </section>
+
+      <details class="card pad ref" id="rulescard">
+        <summary>Series rule</summary>
+        <div id="rules"></div>
+      </details>
+    </aside>
+  </div>
+</div>
+
+<script>
+const SEED = {"meta":{"sentences":126,"tokens":599,"vocab":277,"source":"Seed corpus (demo)"},"words":["ខ្ញុំ","នៅ","អ្នក","តើ","ទៅ","មាន","សូម","ចង់","ជា","ណាស់","ចូលចិត្ត","កម្ពុជា","ធ្វើការ","ញ៉ាំ","ប្រទេស","ខ្មែរ","ណា","រៀន","យើង","មក","បង","អរគុណ","ក្រុង","រៀងរាល់","ថ្ងៃ","ជួប","ថ្មី","មួយ","ស្រលាញ់","សុខសប្បាយ","អ្វី","ភ្នំពេញ","ធំ","ខេត្ត","និង","បាយ","ភាសា","ច្រើន","នេះ","ប៉ុន្មាន","ទេ","ហើយ","កាហ្វេ","ទូរស័ព្ទ","នាក់","ត្រូវ","សៀវភៅ","ឈ្មោះ","ក្នុង","នៃ","ដ៏","ទិញ","ក្តៅ","ភ្លៀង","ខ្លាំង","ស្អែក","ជាមួយ","ម្ហូប","ឆ្ងាញ់","សាលារៀន","គ្រូ","ជួយ","មិន","ម្តងទៀត","គ្នា","ហាង","ប្រើ","របស់","អ៊ីនធឺណិត","ទីនេះ","កំពុង","កម្មវិធី","បឹង","លើ","វត្ត","គ្រួសារ","ប្រាំ","ដេក","លក់","ដើរលេង","ឆ្នេរសមុទ្រ","ស្អាត","ព្រឹក","ពី","បាត់ដំបង","ស្រូវ","រដូវ","ទឹក","ព័ត៌មាន","អាន","បាន","ឲ្យ","ល្អ","ពីរ","តន្ត្រី","ស្រុក","ស្រស់ស្អាត","ពេល","បាទ","ចាស","សួស្តី","ជាទេ","សុភា","រស់នៅ","រាជធានី","ព្រះរាជាណាចក្រ","អង្គរវត្ត","ប្រាសាទ","សៀមរាប","ផ្សារ","បន្លែ","ផ្លែឈើ","ថ្ងៃនេះ","អាកាសធាតុ","ម្សិលមិញ","ធ្លាក់","នឹង","ត្រី","សាច់មាន់","នំបញ្ចុក","ម្ដាយ","ចម្អិន","ឪពុក","ធនាគារ","កូន","សិស្ស","អង់គ្លេស","បង្រៀន","គណិតវិទ្យា","អភ័យទោស","ថ្លៃ","ផង","យល់","និយាយ","ម៉ោង","មន្ទីរពេទ្យ","ព្រោះ","ឈឺ","ក្បាល","កុំព្យូទ័រ","ដើម្បី","ដៃ","ខូច","លឿន","សរសេរ","វប្បធម៌","ចម្រុះ","ទន្លេ","មេគង្គ","ហូរ","កាត់","ទន្លេសាប","បំផុត","អាស៊ីអាគ្នេយ៍","ឆ្នាំថ្មី","ប្រារព្ធ","ខែ","មេសា","ពិធីបុណ្យ","ភ្ជុំបិណ្ឌ","ឆ្នាំ","ប្រជាជន","ជឿ","ព្រះពុទ្ធសាសនា","បងប្រុស","វិស្វករ","បងស្រី","គ្រូពេទ្យ","ប្អូនស្រី","សាកលវិទ្យាល័យ","ការពារ","បរិស្ថាន","រដ្ឋាភិបាល","ប្រកាស","គោលនយោបាយ","សេដ្ឋកិច្ច","រីកចម្រើន","ការអប់រំ","គឺ","គ្រឹះ","ការអភិវឌ្ឍ","ស្វាគមន៍","កាន់","ជំរាបសួរ","លោកគ្រូ","ជំរាបលា","អរុណសួស្តី","ស្រួល","កែប","កំពត","ជិះ","ម៉ូតូ","ឡានក្រុង","ដល់","អង្គុយ","ស្រែ","កសិករ","ដាំ","ពន្លឺ","ម្ចាស់","ផឹក","ទឹកកក","យក","កែវ","បន្ទប់","ទំនេរ","ត្រូវការ","ជំនួយ","ងាយស្រួល","អាច","ស្វែងរក","ចេញផ្សាយ","បណ្ណាល័យ","ប្រយោជន៍","ពួកយើង","ក្រុម","ក្រុមហ៊ុន","បុគ្គលិក","សប្បាយចិត្ត","ដែល","រក្សា","សុខភាព","ថ្ងៃចន្ទ","ថ្ងៃអង្គារ","ថ្ងៃពុធ","ថ្ងៃព្រហស្បតិ៍","ថ្ងៃសុក្រ","ថ្ងៃសៅរ៍","ថ្ងៃអាទិត្យ","បី","បួន","ប្រាំមួយ","ប្រាំពីរ","ប្រាំបី","ប្រាំបួន","ដប់","ភាពយន្ត","ពិរោះ","ការរាំ","អប្សរា","សិល្បៈ","បុរាណ","ព្រះអាទិត្យ","រះ","ព្រះច័ន្ទ","ភ្លឺ","យប់","ប្រាថ្នា","ជោគជ័យ","ទឹកដី","ថៃ","ស្តាប់","បងប្អូន","ឡាន","ហឹរ","ប្អូន","កំណើត","សុខ","សប្បាយ","ចិត្ត","ដើរ","លេង","ឆ្នេរ","សមុទ្រ","សាច់","មាន់","ម្តង","ទៀត","ពិធី","បុណ្យ","ទី","សាលា","កក","ពេទ្យ","ប្រុស","ស្រី","អូន"],"freq":[53,19,16,13,13,12,11,10,9,8,8,7,7,7,6,6,6,5,5,5,5,4,4,4,4,4,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"bi":{"^":[0,39,3,11,6,10,18,4,20,3,2,2,60,2,14,2,98,2,99,2,100,1,31,1,106,1,112,1,114,1,55,1,120,1,122,1,124,1,125,1],"0":[7,8,10,6,4,3,5,3,28,2,29,2,13,2,62,2,8,2,45,2,47,1,103,1,116,1,121,1,12,1,131,1,66,1,142,1,70,1,17,1],"28":[14,1,2,1,20,1],"14":[11,5,250,1],"100":[3,1],"3":[2,9,38,1,134,1,5,1,95,1],"2":[7,2,29,1,47,1,10,1,77,1,19,1,209,1,248,1,12,1,17,1,5,1,1,1],"29":[101,1,8,1],"8":[9,1,104,1,107,1,72,1,165,1,167,1,179,1,215,1,240,1],"9":[21,1],"47":[30,1,102,1],"103":[48,1],"48":[22,1,86,1],"22":[31,2,188,1,189,1],"31":[8,1,32,1],"104":[49,1],"49":[105,1,180,1],"105":[11,1],"106":[8,1],"107":[50,1],"50":[32,1,146,1],"32":[1,1,152,1,9,1],"1":[16,3,22,2,97,2,33,1,123,1,65,1,69,1,153,1,156,1,169,1,73,1,212,1,262,1,74,1],"33":[84,2,108,1],"7":[4,3,13,2,17,1,200,1,51,1,25,1,77,1],"4":[12,3,59,2,16,2,109,1,135,1,74,1,79,1,14,1,271,1],"109":[51,1],"51":[110,1,43,1],"110":[34,1],"34":[111,1,118,1,36,1],"112":[113,1],"113":[52,1],"52":[9,1,5,1],"114":[53,1],"53":[115,1],"115":[54,1],"55":[0,1],"116":[4,1],"13":[35,3,30,2,119,1,87,1],"35":[56,1,41,1],"56":[117,1,75,1],"117":[34,1],"10":[13,2,236,1,89,1,251,1,79,1,57,1,264,1],"120":[0,1],"121":[57,1],"57":[58,1,254,1],"58":[9,1],"122":[0,1],"12":[1,2,23,1,8,1],"124":[4,1],"59":[23,1],"23":[24,2,160,1,82,1],"125":[17,1],"17":[36,2,1,2],"36":[15,1,126,1,26,1],"15":[34,1,155,1,162,1,237,1,96,1],"60":[127,1,273,1],"127":[128,1],"6":[21,2,129,1,61,1,133,1,181,1,194,1,202,1,43,1,220,1,27,1],"21":[37,1],"38":[130,1,208,1,5,1],"130":[39,1],"61":[0,2],"62":[132,1,10,1],"132":[40,1],"133":[63,1],"134":[39,1],"39":[41,1,44,1],"135":[136,1],"136":[137,1],"137":[138,1],"18":[25,1,45,1,4,1,5,1,260,1],"25":[64,2,2,2],"64":[1,1,63,1],"65":[42,1,78,1],"66":[139,1],"139":[140,1],"140":[12,1],"43":[141,1,19,1,26,1],"141":[67,1],"67":[0,1,18,1],"68":[1,1],"69":[143,1],"143":[9,1],"70":[144,1,176,1],"144":[71,1],"11":[5,2,70,1],"5":[145,1,23,1,76,1,195,1,198,1,204,1,213,1,217,1,249,1,252,1,253,1,255,1],"145":[50,1],"147":[148,1],"148":[149,1],"149":[150,1],"150":[14,1],"72":[151,1,32,1],"151":[8,1],"152":[1,1],"154":[15,1],"155":[1,1],"156":[157,1],"158":[159,1],"159":[5,1],"161":[15,1],"162":[73,1],"73":[163,1,68,1],"74":[56,1],"75":[0,1],"76":[44,1,231,1],"164":[0,1],"166":[0,1],"168":[0,1],"45":[4,2,170,1],"170":[171,1],"172":[173,1],"173":[174,1],"174":[26,1],"175":[11,1],"177":[178,1],"178":[8,1],"179":[49,1],"181":[19,1],"19":[83,2,182,1,193,1,0,1],"182":[14,1],"183":[184,1],"185":[25,1],"186":[3,1],"77":[78,1],"78":[187,1,42,1],"187":[40,1],"79":[80,1],"80":[1,2],"189":[81,1],"81":[9,1],"190":[191,1],"191":[4,1],"192":[19,1],"193":[41,1],"194":[69,1],"83":[16,1,33,1],"84":[5,1],"195":[85,1],"85":[37,1,48,1],"196":[197,1],"197":[85,1],"86":[53,1,52,1],"198":[24,1],"24":[54,1,55,1],"199":[65,1],"42":[58,1,201,1],"200":[42,1],"202":[87,1],"87":[27,1,272,1],"27":[203,1,93,1,266,1],"204":[205,1],"205":[40,1],"206":[207,1],"71":[38,1],"208":[66,1],"209":[210,1],"210":[88,1],"88":[1,1,26,1],"26":[211,1],"211":[23,1],"89":[46,2],"46":[1,1,38,1],"213":[9,1],"214":[12,1],"216":[67,1],"217":[37,1],"218":[219,1],"219":[90,1],"90":[25,1,92,1],"220":[221,1],"221":[91,1],"91":[90,1,2,1],"222":[223,1],"223":[224,1],"224":[225,1],"225":[226,1],"226":[227,1],"227":[228,1],"93":[229,1,44,1],"229":[230,1],"230":[76,1],"231":[232,1],"232":[233,1],"233":[234,1],"234":[235,1],"236":[15,1],"94":[15,1],"237":[9,1],"238":[239,1],"239":[8,1],"240":[241,1],"95":[15,1,256,1],"242":[243,1],"243":[1,1],"97":[82,1,246,1],"244":[245,1],"245":[1,1],"247":[91,1],"249":[96,1],"251":[94,1],"252":[93,1],"253":[27,1],"255":[39,1],"256":[2,1],"257":[258,1],"258":[259,1],"260":[261,1],"261":[1,1],"262":[263,1],"264":[265,1],"266":[267,1],"268":[269,1],"269":[1,1],"270":[22,1],"271":[17,1],"273":[61,1],"20":[4,1,274,1,275,1],"274":[0,1],"275":[0,1],"98":[0,1,21,1],"99":[20,1,6,1],"276":[28,1],"41":[1,1]}};
+const LEX = {
+"ខ្ញុំ": "knhom knyom khnhom",
+"អ្នក": "neak nak",
+"នៅ": "nov nau",
+"តើ": "tae te",
+"មាន": "mean men mien",
+"ទៅ": "tov tow dov",
+"ចង់": "chong jong",
+"ជា": "chea jea chia",
+"សូម": "som soum",
+"កម្ពុជា": "kampuchea kampucha",
+"ណាស់": "nas nash",
+"ធ្វើការ": "tver-kar tvekar",
+"ចូលចិត្ត": "choul-chet chol-chet chulchet",
+"ប្រទេស": "pratesh protes pratet",
+"ខ្មែរ": "khmer khmae",
+"ញ៉ាំ": "nham nyam",
+"មក": "mok mork",
+"ណា": "na nea",
+"រៀងរាល់": "reang-roal rienroal",
+"ថ្ងៃ": "thngai tngai ngai",
+"រៀន": "rean rien",
+"យើង": "yeung yoeng",
+"ជួប": "chuob choup juop",
+"ថ្មី": "thmei thmey",
+"អ្វី": "avei avey ey",
+"ក្រុង": "krong",
+"ខេត្ត": "khet ket",
+"និង": "ning nung",
+"ភាសា": "pheasa phea-sa",
+"ច្រើន": "chraen chrern",
+"នេះ": "nih neh nis",
+"ប៉ុន្មាន": "ponman ponmann",
+"ទេ": "te tae",
+"កាហ្វេ": "kafe cafe",
+"ទូរស័ព្ទ": "turasap tourasap",
+"នាក់": "neak nak",
+"ត្រូវ": "trov trou",
+"មួយ": "muoy muy",
+"សៀវភៅ": "seovphov siovphov",
+"ស្រលាញ់": "sralanh srolanh",
+"សុខសប្បាយ": "sok-sabay soksabay",
+"អរគុណ": "orkun arkun orkoun",
+"ឈ្មោះ": "chmous chmuos",
+"ក្នុង": "knong",
+"ភ្នំពេញ": "phnom-penh phnompenh",
+"នៃ": "nai nei",
+"ដ៏": "dor da",
+"ធំ": "thom tom",
+"ទិញ": "tinh tin",
+"ក្តៅ": "kdau kdao",
+"ភ្លៀង": "phleang pleang",
+"ខ្លាំង": "khlang klang",
+"ស្អែក": "sek saek",
+"បាយ": "bay bai",
+"ជាមួយ": "cheamuoy jeamuoy",
+"ម្ហូប": "mhob mhoup",
+"ឆ្ងាញ់": "chhnganh chngan",
+"សាលារៀន": "sala-rean salarien",
+"មិន": "min",
+"ម្តងទៀត": "mdong-tiet mdongtiet",
+"ហើយ": "haey hery hoey",
+"គ្នា": "knea knia",
+"ហាង": "hang",
+"ប្រើ": "prae prer",
+"របស់": "robos robors",
+"អ៊ីនធឺណិត": "internet",
+"ទីនេះ": "ti-nis tinis",
+"កំពុង": "kompong kampong",
+"កម្មវិធី": "kamvithi kamma-vithi",
+"បឹង": "bueng boeng",
+"លើ": "lae ler",
+"គ្រួសារ": "kruosar kruosa",
+"ប្រាំ": "pram",
+"ដេក": "dek",
+"លក់": "lok",
+"ដើរលេង": "dae-leng derleng",
+"ឆ្នេរសមុទ្រ": "chhner-samut chner-samot",
+"ព្រឹក": "prik prek",
+"ពី": "pi pee",
+"បាត់ដំបង": "battambang batdambang",
+"ស្រូវ": "srov srau",
+"រដូវ": "rodov rodau",
+"ព័ត៌មាន": "pothamean pothoman",
+"អាន": "an arn",
+"បាន": "ban",
+"ឲ្យ": "aoy oy",
+"ពីរ": "pir pi",
+"តន្ត្រី": "tontrey tontrei",
+"ស្រុក": "srok",
+"ស្រស់ស្អាត": "sras-saat srossat",
+"ពេល": "pel",
+"សួស្តី": "suostei suosdey susdei",
+"ជាទេ": "chea-te",
+"សុភា": "sophea sopha",
+"រស់នៅ": "ros-nov rosnov",
+"រាជធានី": "reach-thani reachthani",
+"ព្រះរាជាណាចក្រ": "preah-reachea-nachak",
+"អង្គរវត្ត": "angkor-wat angkorwat",
+"ប្រាសាទ": "prasat",
+"សៀមរាប": "siem-reap siemreap",
+"ផ្សារ": "psar",
+"បន្លែ": "bonlae banlae",
+"ផ្លែឈើ": "phlae-chher plaecher",
+"ថ្ងៃនេះ": "thngai-nis ngai-nih",
+"អាកាសធាតុ": "akas-that akasathat",
+"ម្សិលមិញ": "msel-minh mselminh",
+"ធ្លាក់": "thleak tleak",
+"នឹង": "nung neung",
+"ត្រី": "trei trey",
+"សាច់មាន់": "sach-moan sachmoan",
+"នំបញ្ចុក": "num-banh-chok nombanhchok",
+"ម្ដាយ": "mdai mday",
+"ចម្អិន": "chomaen chom-aen",
+"ឪពុក": "ov-puk aupuk",
+"ធនាគារ": "thanakear tonakear",
+"កូន": "koun kon",
+"សិស្ស": "ses sis",
+"អង់គ្លេស": "angkleh ang-kleh",
+"គ្រូ": "kru",
+"បង្រៀន": "bangrean",
+"គណិតវិទ្យា": "kanit-vitthea",
+"អភ័យទោស": "apheytous apheytos",
+"ថ្លៃ": "thlai tlai",
+"ជួយ": "chuoy juoy",
+"ផង": "phong pong",
+"យល់": "yol yul",
+"និយាយ": "niyeay niyay",
+"ម៉ោង": "maong mong",
+"មន្ទីរពេទ្យ": "montir-pet montipet",
+"ព្រោះ": "prous proh",
+"ឈឺ": "chheu cheu",
+"ក្បាល": "kbal",
+"កុំព្យូទ័រ": "computer kompyuter",
+"ដើម្បី": "daembei dembei",
+"ដៃ": "dai day",
+"ខូច": "khoch koch",
+"លឿន": "loen luen",
+"សរសេរ": "sorser sasaer",
+"វប្បធម៌": "vappathor vobathor",
+"ចម្រុះ": "chomrous",
+"ទន្លេ": "tonle",
+"មេគង្គ": "mekong",
+"ហូរ": "hor hour",
+"កាត់": "kat",
+"ទន្លេសាប": "tonle-sap tonlesap",
+"បំផុត": "bompot bamphot",
+"អាស៊ីអាគ្នេយ៍": "asia-akney",
+"ឆ្នាំថ្មី": "chhnam-thmei chnamthmey",
+"ប្រារព្ធ": "prarop praroub",
+"ខែ": "khae khe",
+"មេសា": "mesa",
+"ពិធីបុណ្យ": "pithi-bon pithi-bun",
+"ភ្ជុំបិណ្ឌ": "pchum-ben",
+"ឆ្នាំ": "chhnam chnam",
+"ប្រជាជន": "prachea-chon prachachon",
+"ជឿ": "cheua",
+"ព្រះពុទ្ធសាសនា": "preah-putt-sasna",
+"វត្ត": "vot wat",
+"បងប្រុស": "bong-pros bongprous",
+"វិស្វករ": "visvakor",
+"បងស្រី": "bong-srey bongsrei",
+"គ្រូពេទ្យ": "kru-pet krupet",
+"ប្អូនស្រី": "pon-srey poun-srei",
+"សាកលវិទ្យាល័យ": "sakalavityalay sakal-vithyalai",
+"ការពារ": "kar-pear karpear",
+"បរិស្ថាន": "paristhan",
+"រដ្ឋាភិបាល": "rotheaphibal rothapheaphibal",
+"ប្រកាស": "prokas",
+"គោលនយោបាយ": "kol-noyobay",
+"សេដ្ឋកិច្ច": "sethakech",
+"រីកចម្រើន": "rik-chomroen",
+"ការអប់រំ": "kar-aprom",
+"គឺ": "keu kue",
+"គ្រឹះ": "krus",
+"ការអភិវឌ្ឍ": "kar-aphivath",
+"ស្វាគមន៍": "svakom",
+"កាន់": "kan",
+"ជំរាបសួរ": "chumreap-suor chomreapsour",
+"ជំរាបលា": "chumreap-lea",
+"អរុណសួស្តី": "arun-suosdei",
+"ស្រួល": "sruol srual",
+"កែប": "kep",
+"កំពត": "kampot",
+"ស្អាត": "saat sat",
+"ជិះ": "chis",
+"ម៉ូតូ": "moto",
+"ឡានក្រុង": "lan-krong",
+"ដល់": "dol dal",
+"អង្គុយ": "angkuy ngkuy",
+"ស្រែ": "srae",
+"កសិករ": "kasekor kasikor",
+"ដាំ": "dam",
+"ពន្លឺ": "ponleu",
+"ម្ចាស់": "mchas",
+"ផឹក": "phuk",
+"ទឹកកក": "tuk-kok",
+"យក": "yok",
+"ទឹក": "tuk",
+"កែវ": "kaeo kev",
+"បន្ទប់": "bontub bontoup",
+"ទំនេរ": "tumner tomner",
+"ត្រូវការ": "trov-kar",
+"ជំនួយ": "chumnuoy",
+"ងាយស្រួល": "ngeay-sruol",
+"អាច": "ach",
+"ស្វែងរក": "svaeng-rok",
+"ចេញផ្សាយ": "chenh-psay",
+"បណ្ណាល័យ": "bannalay",
+"ប្រយោជន៍": "prayoch",
+"ពួកយើង": "puok-yeung",
+"ក្រុម": "krom",
+"ក្រុមហ៊ុន": "krom-hun",
+"បុគ្គលិក": "bokkalek",
+"សប្បាយចិត្ត": "sabay-chet",
+"ដែល": "del",
+"រក្សា": "roksa",
+"សុខភាព": "sok-pheap",
+"ល្អ": "lor la",
+"ថ្ងៃចន្ទ": "thngai-chan",
+"ថ្ងៃអង្គារ": "thngai-angkear",
+"ថ្ងៃពុធ": "thngai-put",
+"ថ្ងៃព្រហស្បតិ៍": "thngai-preahos",
+"ថ្ងៃសុក្រ": "thngai-sok",
+"ថ្ងៃសៅរ៍": "thngai-sao",
+"ថ្ងៃអាទិត្យ": "thngai-atit",
+"បី": "bei bey",
+"បួន": "buon",
+"ប្រាំមួយ": "pram-muoy",
+"ប្រាំពីរ": "pram-pir",
+"ប្រាំបី": "pram-bei",
+"ប្រាំបួន": "pram-buon",
+"ដប់": "dop",
+"ភាពយន្ត": "pheap-yon",
+"ពិរោះ": "pirous",
+"ការរាំ": "kar-roam",
+"អប្សរា": "apsara",
+"សិល្បៈ": "selapak",
+"បុរាណ": "boran",
+"ព្រះអាទិត្យ": "preah-atit",
+"រះ": "reah",
+"ព្រះច័ន្ទ": "preah-chan",
+"ភ្លឺ": "phleu pleu",
+"យប់": "yub yop",
+"ប្រាថ្នា": "prathna",
+"ជោគជ័យ": "chok-chey",
+"ទឹកដី": "tuk-dei",
+"ថៃ": "thai",
+"ស្តាប់": "sdab stab",
+"បងប្អូន": "bong-pon",
+"ឡាន": "lan",
+"ហឹរ": "her",
+"ប្អូន": "pon poun",
+"កំណើត": "komnoet",
+"សុខ": "sok",
+"សប្បាយ": "sabay sabai",
+"ចិត្ត": "chet",
+"ដើរ": "dae der",
+"លេង": "leng",
+"ឆ្នេរ": "chhner chner",
+"សមុទ្រ": "samut samot",
+"សាច់": "sach",
+"មាន់": "moan",
+"ម្តង": "mdong",
+"ទៀត": "tiet",
+"ពិធី": "pithi",
+"បុណ្យ": "bon bun",
+"ទី": "ti",
+"សាលា": "sala",
+"កក": "kok",
+"ពេទ្យ": "pet",
+"បង": "bong",
+"ស្រី": "srey srei",
+"ប្រុស": "pros prous",
+"បាទ": "bat",
+"ចាស": "chas jas",
+"អូន": "oun on",
+"លោកគ្រូ": "lok-kru lokkru"
+};
+
+/* ------------------------------------------------------------------ Khmer text */
+// Same rules as normalize() in build_data.py.
+const CL = /([ក-ឳ])((?:្[ក-អ]|[឴-៓៝])*)/y;
+const CL_FIX = /([ក-ឳ])((?:្[ក-អ]|[឴-៓៝])*)/g;
+function rank(u) {
+  const c = u[0];
+  if (c === "្") return 1;
+  if (c === "៉" || c === "៊") return 2;
+  if (c >= "឴" && c <= "ៅ") return 3;
+  return 4;
+}
+function fixCluster(_, base, marks) {
+  const units = [];
+  for (let i = 0; i < marks.length; ) {
+    if (marks[i] === "្" && i + 1 < marks.length) { units.push(marks.slice(i, i + 2)); i += 2; }
+    else { units.push(marks[i]); i += 1; }
+  }
+  return base + units.map((u, i) => [u, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]).join("");
+}
+function normalize(s) {
+  return s.normalize("NFC").replace(/[​‌‍⁠﻿]/g, "").replace(CL_FIX, fixCluster);
+}
+function clusters(s) {
+  const out = []; let i = 0;
+  while (i < s.length) {
+    CL.lastIndex = i;
+    const m = CL.exec(s);
+    if (m && m[0].length) { out.push(m[0]); i += m[0].length; }
+    else { const cp = String.fromCodePoint(s.codePointAt(i)); out.push(cp); i += cp.length; }
+  }
+  return out;
+}
+
+/* ------------------------------------------------- Latin input (Khmerlish) */
+// The two transliteration charts, as data: consonants with their series, and what each vowel
+// sign sounds like after a first-series (A) or second-series (O) consonant. The first spelling
+// in each list is what the generator writes; the others are accepted when typing.
+const CONS = [["ក","A","k"],["ខ","A","kh"],["គ","O","k"],["ឃ","O","kh"],["ង","O","ng"],["ច","A","ch"],["ឆ","A","chh"],
+  ["ជ","O","ch"],["ឈ","O","chh"],["ញ","O","nh"],["ដ","A","d"],["ឋ","A","th"],["ឌ","O","d"],["ឍ","O","th"],["ណ","O","n"],
+  ["ត","A","t"],["ថ","A","th"],["ទ","O","t"],["ធ","O","th"],["ន","O","n"],["ប","A","b"],["ផ","A","ph"],["ព","O","p"],
+  ["ភ","O","ph"],["ម","O","m"],["យ","O","y"],["រ","O","r"],["ល","O","l"],["វ","O","v"],["ស","A","s"],["ហ","A","h"],
+  ["ឡ","A","l"],["អ","A",""]];
+const VOW = [
+  { s: "",  A: ["a"],           O: ["o"] },                 // inherent vowel: ក ka, គ ko
+  { s: "ា", A: ["a", "aa"],     O: ["ea", "ia"] },           // ក+ា ka, គ+ា kea
+  { s: "ិ", A: ["e"],           O: ["i"] },
+  { s: "ី", A: ["ei", "ey"],    O: ["i", "ii", "ee"] },
+  { s: "ឹ", A: ["oe"],          O: ["oe", "u"] },
+  { s: "ឺ", A: ["oeu", "eu"],   O: ["eu", "oeu"] },
+  { s: "ុ", A: ["o"],           O: ["u"] },
+  { s: "ូ", A: ["ou"],          O: ["ou", "u", "oo"] },
+  { s: "ួ", A: ["uo", "ua"],    O: ["uo", "ua"] },
+  { s: "ើ", A: ["aeu", "ae"],   O: ["eu", "oe"] },
+  { s: "ឿ", A: ["oea"],         O: ["eua", "oea"] },
+  { s: "ៀ", A: ["ie", "ia"],    O: ["ie", "ia"] },
+  { s: "េ", A: ["e"],           O: ["e"] },
+  { s: "ែ", A: ["ae"],          O: ["ae"] },
+  { s: "ៃ", A: ["ai", "ay"],    O: ["ey", "ay", "ei"] },
+  { s: "ោ", A: ["ao"],          O: ["o", "ou"] },
+  { s: "ៅ", A: ["au", "aw"],    O: ["ov", "aw", "ow"] },
+  { s: "ុំ", A: ["om"],         O: ["um"] },
+  { s: "ំ", A: ["am"],          O: ["um"] },
+  { s: "ាំ", A: ["am"],         O: ["oam", "eam"] },
+  { s: "ះ", A: ["ah"],          O: ["eah", "ah"] },
+];
+const SIGN = new Map(VOW.map(e => [e.s, e]));
+const VOWSIGNS = new Set("ាិីឹឺុូួើឿៀេែៃោៅ");
+const SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
+const ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
+const FINAL = {ក:"k",ខ:"k",គ:"k",ឃ:"k",ង:"ng",ច:"ch",ឆ:"ch",ជ:"ch",ឈ:"ch",ញ:"nh",ដ:"t",ឋ:"t",ឌ:"t",ឍ:"t",ណ:"n",ត:"t",ថ:"t",ទ:"t",ធ:"t",ន:"n",ប:"p",ផ:"p",ព:"p",ភ:"p",ម:"m",យ:"y",រ:"",ល:"l",វ:"v",ស:"s",ហ:"h",ឡ:"l",អ:""};
+const INDEP = {"ឥ":"e","ឦ":"ei","ឧ":"o","ឩ":"ou","ឪ":"au","ឫ":"rue","ឬ":"rue","ឭ":"rue","ឮ":"rue","ឯ":"ae","ឰ":"ai","ឱ":"ao","ឲ":"ao","ឳ":"au"};
+// Khmer word -> rough Latin spelling, used for words that have no hand-written spelling.
+function romanize(word) {
+  const cs = clusters(word), n = cs.length; let out = "", open = false;
+  cs.forEach((c, i) => {
+    const base = c[0], rest = c.slice(1), isLast = i === n - 1, subs = []; let vowel = "", marks = "";
+    for (let k = 0; k < rest.length; k++) {
+      if (rest[k] === "្" && k + 1 < rest.length) { subs.push(rest[k + 1]); k++; }
+      else if (VOWSIGNS.has(rest[k])) { if (!vowel) vowel = rest[k]; }
+      else marks += rest[k];
+    }
+    if (/[៍៑]/.test(marks)) return;                       // silent letter
+    if (INDEP[base] !== undefined) { out += INDEP[base] + subs.map(x => FINAL[x] || "").join(""); open = false; return; }
+    const nik = marks.includes("ំ"), reah = marks.includes("ះ");
+    const hasNuc = !!vowel || nik || reah || marks.includes("័");
+    if (open && !vowel && (/់/.test(marks) || (!hasNuc && (isLast || !subs.length)))) { out += FINAL[base] || ""; open = false; return; }
+    let ser = SER_OF[base] || "O";
+    if (marks.includes("៉")) ser = "A"; else if (marks.includes("៊")) ser = "O";   // muusikatoan / triisap switch the series
+    // the vowel sign, together with a following nikahit or reahmuk where the chart lists the pair
+    const sign = nik ? (vowel === "ា" || vowel === "ុ" ? vowel + "ំ" : vowel ? vowel : "ំ") : reah && !vowel ? "ះ" : vowel;
+    let v = marks.includes("័") && !vowel ? "a" : (SIGN.get(sign) || SIGN.get(vowel))[ser][0];
+    if (vowel && !SIGN.has(sign)) v += nik ? "m" : reah ? "h" : "";
+    else if (vowel && reah) v += "h";
+    out += (ONSET[base] || "") + subs.map(x => ONSET[x] || "").join("") + v;
+    open = !(nik || reah);
+  });
+  return out;
+}
+// Latin syllable -> Khmer letters, following the same charts backwards. The vowel sound tells us
+// which series the consonant must be in, which picks the letter (k + "ea" can only be គ, never ក).
+const ONSET_LAT = {};
+CONS.forEach(([l, , lat]) => { if (lat) (ONSET_LAT[lat] = ONSET_LAT[lat] || []).push(l); });
+Object.assign(ONSET_LAT, { g: ["គ"], j: ["ច", "ជ"], c: ["ច", "ជ"], ny: ["ញ"], w: ["វ"], q: ["ក"] });
+const FINAL_LAT = { k:["ក"], ng:["ង"], ch:["ច"], nh:["ញ"], t:["ត","ដ","ទ"], n:["ន","ណ"], p:["ប","ព"], m:["ម"], y:["យ"], l:["ល"], v:["វ"], s:["ស"], h:["ហ"] };
+const TO_A = new Set("ងញនមយរលវណ"), TO_O = new Set("បសហអឡ");    // letters that can take a series-switching mark
+function compose(token, prior) {
+  const t = token.toLowerCase().replace(/[^a-z]/g, ""), found = new Map();
+  if (!t) return [];
+  const onsets = ["", ...Object.keys(ONSET_LAT)].filter(o => t.startsWith(o));
+  for (const o of onsets) {
+    const rest = t.slice(o.length), letters = o ? ONSET_LAT[o] : ["អ"];
+    const finals = [["", [""]], ...Object.entries(FINAL_LAT).filter(([lat]) => rest.length > lat.length && rest.endsWith(lat))];
+    for (const [flat, fl] of finals) {
+      const v = rest.slice(0, rest.length - flat.length); if (!v) continue;
+      for (const e of VOW) for (const R of ["A", "O"]) {
+        if (!e[R].includes(v)) continue;
+        let ls = letters.filter(l => SER_OF[l] === R), mark = "";
+        if (!ls.length) { ls = letters.filter(l => (R === "A" ? TO_A : TO_O).has(l)); mark = R === "A" ? "៉" : "៊"; }
+        for (const l of ls) for (const f of fl) {
+          if (mark && !e.s) continue;                  // a switching mark needs a vowel sign to sit with
+          const w = l + mark + e.s + f, why = `${l + mark + e.s}: ${SER_OF[l] === "A" ? "first" : "second"}-series ${l}${mark ? " switched by " + mark : ""}, reads "${v}"`;
+          const score = (prior[l] || 0) + (mark ? -0.5 : 0) + (flat ? 0 : 0.05);
+          if (!found.has(w) || found.get(w).score < score) found.set(w, { word: w, why, score });
+        }
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => b.score - a.score).slice(0, 4);
+}
+// Reduce a Latin spelling to a sound key so that knyom, knhom and khnhom all match.
+function romKey(s) {
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[əɛ]/g, "e").replace(/ɨ/g, "u").replace(/ɔ/g, "o").replace(/ɑ/g, "a");
+  s = s.toLowerCase().replace(/[^a-z]/g, "");
+  s = s.replace(/ng/g, "G").replace(/nh|ny|gn/g, "N");
+  s = s.replace(/chh|ch|j/g, "c").replace(/kh|g|q/g, "k").replace(/ph/g, "p").replace(/th/g, "t").replace(/w/g, "v").replace(/x/g, "s");
+  s = s.replace(/oeu|aeu|eua|eu|oe|ue|ur|er/g, "E").replace(/uo|ua/g, "W").replace(/ea|ia|ie/g, "A");
+  s = s.replace(/ou|oo|uu/g, "u").replace(/ei|ey|ee|ii/g, "i").replace(/ay|aa/g, "ai").replace(/ao|au|ov|av/g, "O").replace(/ae/g, "e");
+  s = s.replace(/r(?![aeiouAEIOWu])/g, "").replace(/h(?![aeiouAEIOWu])/g, "").replace(/y$/, "i");
+  return s.replace(/(.)\1+/g, "$1");
+}
+function levS(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/* ---------------------------------------------------------------------- engine */
+class Engine {
+  constructor(data) {
+    this.words = data.words; this.freq = data.freq; this.meta = data.meta || {};
+    this.N = this.freq.reduce((a, b) => a + b, 0) || 1;
+    this.index = new Map(this.words.map((w, i) => [w, i]));
+    this.sorted = this.words.map((w, i) => [w, i]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    this.cl = this.words.map(clusters);
+    this.maxLen = Math.min(24, this.cl.reduce((m, c) => Math.max(m, c.length), 1));
+    this.bi = data.bi || {};
+    this.sentences = this.meta.sentences || 1;
+    this.buildRoman();
+  }
+  lower(p) { let lo = 0, hi = this.sorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.sorted[m][0] < p) lo = m + 1; else hi = m; } return lo; }
+  hasPrefix(p) { const i = this.lower(p); return i < this.sorted.length && this.sorted[i][0].startsWith(p); }
+  withPrefix(p) { const out = []; for (let i = this.lower(p); i < this.sorted.length && this.sorted[i][0].startsWith(p); i++) out.push(this.sorted[i][1]); return out; }
+  row(prev) {
+    const key = prev === "^" ? "^" : String(this.index.get(prev));
+    const flat = this.bi[key]; if (!flat) return null;
+    const m = new Map(); for (let i = 0; i < flat.length; i += 2) m.set(flat[i], flat[i + 1]);
+    const total = prev === "^" ? this.sentences : this.freq[this.index.get(prev)];
+    return { m, total };
+  }
+  // P(w | prev): bigram mixed with unigram, trusting the bigram more when the context was seen often.
+  prob(w, row) {
+    const uni = this.freq[w] / this.N;
+    if (!row) return uni;
+    const lam = row.total / (row.total + 3);
+    return lam * ((row.m.get(w) || 0) / row.total) + (1 - lam) * uni;
+  }
+  // Split a run of Khmer text into known words; the last piece may be an unfinished word.
+  segment(run, allowTail) {
+    const c = clusters(run), n = c.length, INF = 1e9;
+    const best = new Array(n + 1).fill(INF), back = new Array(n + 1).fill(null);
+    best[0] = 0;
+    for (let i = 0; i < n; i++) {
+      if (best[i] >= INF) continue;
+      const upd = (j, cost, tok, tail) => { if (best[i] + cost < best[j]) { best[j] = best[i] + cost; back[j] = { i, tok, tail }; } };
+      for (let j = i + 1; j <= Math.min(n, i + this.maxLen); j++) {
+        const s = c.slice(i, j).join(""), id = this.index.get(s);
+        if (id !== undefined) upd(j, -Math.log(this.freq[id] / this.N) + 1.5, s, false);
+      }
+      upd(i + 1, 14, c[i], false);
+      if (allowTail) {
+        const s = c.slice(i).join("");
+        upd(n, this.hasPrefix(s) ? 4 : 8 + 3 * (n - i), s, true);
+      }
+    }
+    const toks = []; let j = n, partial = "";
+    while (j > 0) { const b = back[j]; if (b.tail) partial = b.tok; else toks.push(b.tok); j = b.i; }
+    return { tokens: toks.reverse(), partial };
+  }
+  analyze(text) {
+    const sentence = text.split(/[។៕៖!?\n]/).pop();
+    const runs = sentence.split(/[\s]+/);
+    const lastRun = runs.pop();
+    let tokens = [];
+    for (const r of runs) if (r) tokens.push(...this.segment(r, false).tokens);
+    let partial = "";
+    if (lastRun) { const s = this.segment(lastRun, true); tokens.push(...s.tokens); partial = s.partial; }
+    return { tokens, partial, prev: tokens.length ? tokens[tokens.length - 1] : "^" };
+  }
+  buildRoman() {
+    this.rom = []; this.shown = [];
+    this.words.forEach((w, i) => {
+      const sp = (LEX[w] || "").split(/\s+/).filter(Boolean), seen = new Set();
+      const add = (txt, gen) => { const k = romKey(txt); if (k && !seen.has(k)) { seen.add(k); this.rom.push({ k, w: i, gen }); } };
+      sp.forEach(x => add(x, false));
+      add(romanize(w), true);
+      this.shown[i] = sp.length ? sp[0].replace(/-/g, " ") : romanize(w);
+    });
+    this.rom.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+    this.romTop = this.rom.filter(e => e.w < 20000);
+    this.prior = {};                                   // how often words start with each letter
+    this.words.forEach((w, i) => { this.prior[w[0]] = (this.prior[w[0]] || 0) + this.freq[i] / this.N; });
+  }
+  lowerRom(p) { let lo = 0, hi = this.rom.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.rom[m].k < p) lo = m + 1; else hi = m; } return lo; }
+  // Words whose Latin spelling sounds like the token: exact sound, starts with it, or one or two letters off.
+  romSuggest(token, ctx, limit = 8) {
+    const key = romKey(token); if (!key) return [];
+    const row = this.row(ctx.prev), best = new Map();
+    const hit = (e, tier) => { const t = tier + (e.gen ? 0.5 : 0), c = best.get(e.w); if (c === undefined || t < c) best.set(e.w, t); };
+    for (let i = this.lowerRom(key); i < this.rom.length && this.rom[i].k.startsWith(key); i++) hit(this.rom[i], this.rom[i].k === key ? 0 : 1);
+    if (best.size < limit && key.length >= 3) {
+      const maxd = key.length >= 6 ? 2 : 1;
+      for (const e of this.romTop) {
+        if (key.length - e.k.length > maxd) continue;
+        const d = Math.min(levS(key, e.k), levS(key, e.k.slice(0, key.length)));
+        if (d >= 1 && d <= maxd) hit(e, 2 + 0.1 * d);
+      }
+    }
+    const out = [...best.entries()].map(([w, t]) => ({ w, word: this.words[w], kind: t < 1 ? "exact" : t < 2 ? "prefix" : "fuzzy", tier: t, p: this.prob(w, row), rom: this.shown[w], replace: token }));
+    // nothing in the word list sounds like it: spell it from the charts, flagged as a guess
+    if (![...best.values()].some(t => t < 2)) compose(token, this.prior).forEach(c =>
+      out.push({ w: -1, word: c.word, kind: "rule", tier: 1.8, p: null, rom: "by rule", why: c.why, replace: token }));
+    out.sort((a, b) => a.tier - b.tier || (b.p || 0) - (a.p || 0));
+    return out.slice(0, limit);
+  }
+  suggest(ctx, limit = 8) {
+    const prev = ctx.prev, row = this.row(prev), seen = new Set(), out = [];
+    const push = (w, kind) => { if (seen.has(w)) return; seen.add(w); out.push({ w, word: this.words[w], kind, p: this.prob(w, row) }); };
+    if (!ctx.partial) {
+      if (row) [...row.m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).forEach(([w]) => push(w, "next"));
+      for (let w = 0; w < this.words.length && out.length < limit; w++) push(w, "common");
+      return out.sort((a, b) => b.p - a.p).slice(0, limit);
+    }
+    this.withPrefix(ctx.partial).forEach(w => { if (this.words[w] !== ctx.partial) push(w, "complete"); });
+    out.sort((a, b) => b.p - a.p);
+    let res = out.slice(0, limit);
+    // The typed text may already be a whole word: then offer the words that usually follow it.
+    const exact = this.index.get(ctx.partial);
+    if (exact !== undefined) {
+      const row2 = this.row(ctx.partial);
+      if (row2) [...row2.m.entries()].sort((a, b) => b[1] - a[1]).forEach(([w]) => {
+        if (res.length < limit && !seen.has(w)) { seen.add(w); res.push({ w, word: this.words[w], kind: "next", append: true, p: this.prob(w, row2) }); }
+      });
+    }
+    const pc = clusters(ctx.partial);
+    if (exact === undefined && res.length < 3 && pc.length >= 2) {
+      const fz = [];
+      for (let w = 0; w < Math.min(this.words.length, 20000); w++) {
+        if (seen.has(w) || this.words[w] === ctx.partial) continue;
+        const wc = this.cl[w];
+        const d = Math.min(lev(pc, wc.slice(0, pc.length)), lev(pc, wc));
+        if (d <= 1) fz.push({ w, word: this.words[w], kind: "fuzzy", p: this.prob(w, row) });
+      }
+      fz.sort((a, b) => b.p - a.p);
+      res = res.concat(fz.slice(0, limit - res.length));
+    }
+    return res;
+  }
+}
+function lev(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  const m = a.length, n = b.length; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/* -------------------------------------------------------------------------- UI */
+const $ = id => document.getElementById(id);
+const ta = $("text");
+let engine = new Engine(SEED), saved = 0, completed = null, composing = false, current = [], mode = "khmer", typing = 0;
+const LATIN = /[A-Za-z'\-]+$/;
+
+function esc(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function caret() { return document.activeElement === ta ? ta.selectionStart : ta.value.length; }
+
+function refresh() {
+  if (composing) return;
+  const pos = caret(), before = normalize(ta.value.slice(0, pos));
+  const tok = mode === "latin" && !(completed && completed.pos === pos) ? (LATIN.exec(before) || [""])[0] : "";
+  let ctx;
+  if (tok) {
+    ctx = engine.analyze(before.slice(0, before.length - tok.length));
+    if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ""; }
+    ctx.token = tok;
+    current = engine.romSuggest(tok, ctx);
+  } else {
+    if (completed && completed.pos === pos) ctx = { prev: completed.word, partial: "", tokens: engine.analyze(before).tokens };
+    else { completed = null; ctx = engine.analyze(before); }
+    current = engine.suggest(ctx);
+  }
+  ctx.before = before; ctx.pos = pos;
+  render(ctx);
+}
+
+function render(ctx) {
+  const strip = $("strip");
+  strip.innerHTML = "";
+  const shown = current.slice(0, 6);
+  if (!shown.length) strip.innerHTML = ctx.token ? '<span class="empty">No Khmer word sounds like that yet. Check the spelling or load a bigger data file.</span>' : '<span class="empty">No suggestions for this spelling. Keep typing or load a bigger data file.</span>';
+  shown.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.setAttribute("role", "option");
+    b.className = "chip" + (i === 0 && c.kind !== "fuzzy" && c.kind !== "rule" ? " first" : "") + (c.kind === "fuzzy" ? " fuzzy" : "") + (c.kind === "rule" ? " rule" : "");
+    b.innerHTML = (c.kind === "fuzzy" ? "~" : "") + esc(c.word) + (c.rom ? ' <span class="rom">' + esc(c.rom) + "</span>" : c.kind === "next" ? ' <span class="tag">next</span>' : c.kind === "common" ? ' <span class="tag">common</span>' : "");
+    b.addEventListener("mousedown", e => e.preventDefault());
+    b.addEventListener("click", () => accept(c));
+    strip.appendChild(b);
+  });
+
+  const toks = ctx.tokens || [];
+  const segHtml = toks.map(esc).join('<span class="sep">|</span>') + (ctx.partial ? (toks.length ? '<span class="sep">|</span>' : "") + "<b>" + esc(ctx.partial) + "</b>" : "");
+  $("l-seg").textContent = ctx.token ? "Sound key" : "Segmented";
+  $("l-part").textContent = ctx.token ? "Latin word" : "Typing";
+  $("c-seg").innerHTML = ctx.token ? '<span class="mono">' + esc(romKey(ctx.token)) + "</span>" : segHtml || "–";
+  $("c-prev").textContent = ctx.prev === "^" ? "(start of sentence)" : ctx.prev;
+  $("c-part").textContent = ctx.token || ctx.partial || "(nothing yet: predicting next word)";
+
+  const top = current.slice(0, 8), max = Math.max(...top.map(c => c.p), 1e-9);
+  $("cands").innerHTML = top.length
+    ? '<table class="cand"><thead><tr><th>Word</th><th>Type</th><th style="text-align:right">P(w | prev)</th></tr></thead><tbody>' +
+      top.map(c => `<tr><td class="w">${esc(c.word)}${c.rom ? '<span class="rm">' + esc(c.why || c.rom) + "</span>" : ""}</td><td class="k">${c.kind}<span class="bar${c.kind === "fuzzy" ? " fz" : c.kind === "rule" ? " rl" : ""}" style="width:${Math.max(4, ((c.p || 0) / max) * 100)}%"></span></td><td class="p">${c.p === null ? "–" : (c.p * 100).toFixed(1) + "%"}</td></tr>`).join("") +
+      "</tbody></table>"
+    : '<p class="none">Nothing to rank yet.</p>';
+}
+
+function accept(c) {
+  const pos = caret(), before = normalize(ta.value.slice(0, pos)), after = ta.value.slice(pos);
+  // a Latin token is replaced as a whole; an appended word follows a finished word
+  const partial = c.replace !== undefined ? c.replace : c.append ? "" : (completed && completed.pos === pos ? "" : engine.analyze(before).partial);
+  const keep = before.slice(0, before.length - partial.length);
+  const keys = s => Array.from(s).length;          // about one key press per code point
+  if (c.replace === undefined) { saved += Math.max(0, keys(c.word) - keys(partial) - 1); $("s-saved").textContent = saved; }
+  ta.value = keep + c.word + after;
+  const np = keep.length + c.word.length;
+  ta.focus(); ta.setSelectionRange(np, np);
+  completed = { pos: np, word: c.word };
+  refresh();
+}
+
+// Latin mode: a space converts the Latin word before it into the best Khmer match.
+function commitLatin() {
+  const pos = ta.selectionStart, before = ta.value.slice(0, pos - 1), after = ta.value.slice(pos);
+  const m = LATIN.exec(before); if (!m) return false;
+  const pre = normalize(before.slice(0, before.length - m[0].length));
+  const ctx = engine.analyze(pre);
+  if (ctx.partial) ctx.prev = ctx.partial;
+  const top = engine.romSuggest(m[0], ctx)[0]; if (!top) return false;
+  ta.value = pre + top.word + after;
+  const np = pre.length + top.word.length; ta.setSelectionRange(np, np);
+  completed = { pos: np, word: top.word };
+  return true;
+}
+ta.addEventListener("input", e => {
+  typing++; completed = null;
+  if (mode === "latin" && !composing && e.data === " ") commitLatin();
+  refresh();
+});
+ta.addEventListener("keyup", e => { if (e.key !== "Tab") refresh(); });
+ta.addEventListener("click", refresh);
+ta.addEventListener("focus", refresh);
+ta.addEventListener("compositionstart", () => (composing = true));
+ta.addEventListener("compositionend", () => { composing = false; completed = null; refresh(); });
+ta.addEventListener("keydown", e => {
+  if (composing || !current.length) return;
+  const pending = mode === "latin" && LATIN.test(ta.value.slice(0, caret()));
+  if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && pending)) { e.preventDefault(); accept(current[0]); }
+});
+
+/* samples and modes */
+const SAMPLES = { khmer: ["ខ្ញុំ ចូលចិត្ត ", "ស្រ", "ប្រ", "តើ អ្នក ", "ខ្ញុំចង់ញ៉ាំប", "ស្រលាញ"],
+                  latin: ["knhom chong nham bay ", "sok sabay te ", "orkun ", "sralanh ", "phnom penh ", "bong tov na "] };
+// Latin samples are typed out letter by letter so the conversion is visible.
+function typeLatin(str) {
+  const id = ++typing; ta.value = ""; completed = null; ta.focus(); refresh();
+  const delay = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 80;
+  let i = 0;
+  (function step() {
+    if (id !== typing || i >= str.length) return;
+    const ch = str[i++];
+    ta.value += ch; ta.setSelectionRange(ta.value.length, ta.value.length); completed = null;
+    if (ch === " ") commitLatin();
+    refresh();
+    setTimeout(step, delay);
+  })();
+}
+function buildSamples() {
+  const box = $("samples"); box.innerHTML = '<span class="lbl">Try</span>';
+  SAMPLES[mode].forEach(s => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "sample"; b.textContent = s.trimEnd(); if (s.endsWith(" ")) { const sp = document.createElement("span"); sp.className = "sp"; b.appendChild(sp); }
+    b.addEventListener("click", () => {
+      if (mode === "latin") return typeLatin(s);
+      typing++; ta.value = s; completed = null; ta.focus(); ta.setSelectionRange(s.length, s.length); refresh();
+    });
+    box.appendChild(b);
+  });
+}
+function setMode(m) {
+  mode = m; typing++; completed = null;
+  $("m-khmer").setAttribute("aria-pressed", m === "khmer"); $("m-latin").setAttribute("aria-pressed", m === "latin");
+  $("kbcard").hidden = m === "latin";
+  $("hint-khmer").hidden = m === "latin"; $("legend").hidden = m === "latin"; $("hint-latin").hidden = m === "khmer";
+  ta.placeholder = m === "latin" ? "Type Khmer in Latin letters, e.g. knhom chong nham bay" : "វាយអក្សរខ្មែរនៅទីនេះ…";
+  ta.value = m === "latin" ? "" : "ខ្ញុំ ចូលចិត្ត ";
+  buildSamples(); refresh();
+}
+$("m-khmer").addEventListener("click", () => setMode("khmer"));
+$("m-latin").addEventListener("click", () => setMode("latin"));
+
+/* reference tables, generated from the same data the engine uses */
+(function () {
+  let h = '<p>Each consonant belongs to the first series or the second series, and the same vowel sign sounds different after each. ក + ា reads "ka", គ + ា reads "kea". A second-series consonant with ៉ reads like the first series, a first-series consonant with ៊ like the second.</p>';
+  h += '<table class="rules"><thead><tr><th colspan="2">First series</th><th colspan="2">Second series</th></tr></thead><tbody>';
+  VOW.forEach(e => { h += `<tr><td class="kh">ក${e.s}</td><td class="mono">${e.A[0]}</td><td class="kh">គ${e.s}</td><td class="mono">${e.O[0]}</td></tr>`; });
+  h += '</tbody></table><p>Consonants (shaded = first series)</p><ul class="cons">';
+  CONS.forEach(([l, ser, lat]) => { h += `<li class="${ser === "A" ? "a" : ""}"><span class="kh">${l}</span>${lat || "a/or"}</li>`; });
+  $("rules").innerHTML = h + "</ul>";
+})();
+
+/* on-screen keyboard */
+const KB_CONS = "កខគឃងចឆជឈញដឋឌឍណតថទធនបផពភមយរលវសហឡអ".split("");
+const KB_VOW = ["ា", "ិ", "ី", "ឹ", "ឺ", "ុ", "ូ", "ួ", "ើ", "ឿ", "ៀ", "េ", "ែ", "ៃ", "ោ", "ៅ", "ាំ", "ុំ", "ះ", "ំ"];
+const KB_SIGN = ["៉", "៊", "់", "័", "៍", "៏", "ៗ", "។"];
+function addKeys(list, ghost) {
+  const row = document.createElement("div"); row.className = "keys";
+  list.forEach(k => mk(row, k, ghost ? '<span class="ghost">◌</span>' + k : k, k));
+  $("kb").appendChild(row);
+}
+function mk(row, ins, html, label) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "key" + (html.length > 3 && /^[A-Za-z]/.test(html) ? " wide" : ""); b.innerHTML = html;
+  b.setAttribute("aria-label", label || ins);
+  b.addEventListener("mousedown", e => e.preventDefault());
+  b.addEventListener("click", () => type(ins));
+  row.appendChild(b);
+}
+addKeys(KB_CONS, false); addKeys(KB_VOW, true); addKeys(KB_SIGN, true);
+const ctl = document.createElement("div"); ctl.className = "keys"; $("kb").appendChild(ctl);
+mk(ctl, "្", '<span class="ghost">◌</span>្', "coeng, subscript marker");
+mk(ctl, " ", "Space", "space"); mk(ctl, "\b", "Backspace", "backspace"); mk(ctl, "", "Clear", "clear");
+function type(s) {
+  ta.focus();
+  if (s === "") { ta.value = ""; completed = null; refresh(); return; }
+  const a = ta.selectionStart, b = ta.selectionEnd;
+  if (s === "\b") {
+    // delete one code point so the user can undo a mark without losing the whole cluster
+    const cp = a === b && a > 0 ? (ta.value.codePointAt(a - 1) > 0xffff ? 2 : 1) : 0;
+    ta.value = ta.value.slice(0, a - cp) + ta.value.slice(b); ta.setSelectionRange(a - cp, a - cp);
+  } else {
+    ta.value = ta.value.slice(0, a) + s + ta.value.slice(b); ta.setSelectionRange(a + s.length, a + s.length);
+  }
+  completed = null; refresh();
+}
+$("kbtoggle").addEventListener("click", () => {
+  const kb = $("kb"); kb.hidden = !kb.hidden; $("kbtoggle").textContent = kb.hidden ? "Show" : "Hide";
+});
+
+/* data loading */
+function showStats() {
+  $("s-vocab").textContent = engine.words.length.toLocaleString();
+  $("s-tokens").textContent = (engine.meta.tokens || engine.N).toLocaleString();
+  $("s-src").textContent = "Source: " + (engine.meta.source || "custom data file");
+}
+$("loadbtn").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!Array.isArray(d.words) || !Array.isArray(d.freq) || d.words.length !== d.freq.length) throw new Error("This is not a file made by build_data.py.");
+      engine = new Engine(d); $("err").textContent = ""; showStats(); refresh();
+    } catch (err) { $("err").textContent = "Could not load: " + err.message; }
+  };
+  r.readAsText(f); e.target.value = "";
+});
+
+ta.value = "ខ្ញុំ ចូលចិត្ត ";
+buildSamples(); showStats(); refresh();
+</script>
+
+</body></html>

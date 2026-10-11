@@ -1,0 +1,7 @@
+{
+  "name": "khmer-autocomplete",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "python3 build_demo.py data.json", "test": "npm run build && node tests/check.mjs" },
+  "devDependencies": { "playwright": "^1.48.0" }
+}
