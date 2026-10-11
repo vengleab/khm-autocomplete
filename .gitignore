@@ -1,0 +1,6 @@
+target/
+node_modules/
+web/artifact.html
+*.bin
+!tests/golden/*.bin
+__pycache__/

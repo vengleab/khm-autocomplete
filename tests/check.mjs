@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-const page_url = 'file://' + path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.html');
+const page_url = 'file://' + path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web', 'index.html');
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const pg = await browser.newPage();
 const errors = [];
