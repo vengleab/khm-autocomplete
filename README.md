@@ -5,16 +5,17 @@ Two input modes in one page:
 - Latin input (Khmerlish): type Khmer in Latin letters ("knhom chong nham bay"), press Space to convert each word to Khmer script.
 
 Files
-- index.html        standalone demo (open in a browser; needs internet only for the Khmer web font)
-- data.json         frequency data built from seed_corpus.txt (277 words)
-- lexicon.json      hand-written Latin spellings for each seed word (several variants per word)
-- seed_corpus.txt   small hand-written, pre-segmented Khmer corpus
-- build_data.py     builds data.json from a Khmer Wikipedia dump, plain text, or pre-segmented text
-- template.html + build_demo.py   embed data.json and lexicon.json into the page -> index.html
+- web/index.html    standalone demo (open in a browser; needs internet only for the Khmer web font)
+- data/data.json    frequency data built from seed_corpus.txt (277 words)
+- data/lexicon.json hand-written Latin spellings for each seed word (several variants per word)
+- data/seed_corpus.txt small hand-written, pre-segmented Khmer corpus
+- data/build_data.py builds data.json from a Khmer Wikipedia dump, plain text, or pre-segmented text
+- web/template.html + web/build_demo.py   embed data.json and lexicon.json into the page -> web/index.html
+- core/             Rust port of the engine (khcore); see CLAUDE.md
 
 The series rule (from the transliteration charts)
 - Every consonant is first series (A) or second series (O). The same vowel sign sounds different after each:
-  ក+ា = ka, គ+ា = kea. The tables are in template.html as CONS and VOW and drive both directions.
+  ក+ា = ka, គ+ា = kea. The tables are in web/template.html as CONS and VOW and drive both directions.
 - Khmer to Latin: romanize() picks the reading from the consonant's series. ៉ makes a second-series consonant read
   like the first series, ៊ makes a first-series consonant read like the second. Paired signs (ុំ, ាំ, ះ) use their own readings.
 - Latin to Khmer: compose() works the charts backwards for syllables that are not in the word list. The vowel sound
@@ -32,8 +33,8 @@ How Latin input works
 Build real data (on your machine)
 1. pip install khmer-nltk
 2. Download https://dumps.wikimedia.org/kmwiki/latest/kmwiki-latest-pages-articles.xml.bz2
-3. python build_data.py --wiki kmwiki-latest-pages-articles.xml.bz2 -o data.json
+3. python data/build_data.py --wiki kmwiki-latest-pages-articles.xml.bz2 -o data.json
 4. Either click "Load data file" in the demo and pick data.json,
-   or run: python build_demo.py data.json   (embeds it into index.html)
+   or run: python web/build_demo.py data/data.json   (embeds it into index.html)
 
 Tuning: --min-count (default 3) drops rare words, --bigram-top (default 20) keeps the top next-words per word.
