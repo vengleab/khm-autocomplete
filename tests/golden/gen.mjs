@@ -23,9 +23,9 @@ const ANCHOR = '/* -------------------------------------------------------------
 if (script.split(ANCHOR).length !== 2) throw new Error('UI anchor not unique in template.html');
 const enginePart = script.split(ANCHOR)[0];
 
-function loadRef(dataText, lexText) {
-  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText) +
-    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, SEED});';
+function loadRef(dataText, lexText, enText) {
+  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText).replace('__EN__', () => enText) +
+    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, enKey, enStems, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, EN, SEED});';
   const ref = vm.runInNewContext(code);
   ref.E = new ref.Engine(JSON.parse(dataText));
   return ref;
@@ -45,7 +45,7 @@ const ri = n => Math.floor(R() * n);
 const pick = a => a[ri(a.length)];
 const chance = p => R() < p;
 
-const seedRef = loadRef(read('data/data.json'), read('data/lexicon.json'));
+const seedRef = loadRef(read('data/data.json'), read('data/lexicon.json'), read('data/english.json'));
 const LETTERS = seedRef.CONS.map(c => c[0]);
 const SIGNS_X = ['៉', '៊', '់', '័', 'ំ', 'ះ', '៍', '៑', '៏', 'ៗ'];
 const INVIS = ['​', '‌', '‍', '⁠', '﻿'];
@@ -86,11 +86,35 @@ function makeSynth() {
   }
   return { data: { meta, words: list, freq, bi }, lex };
 }
+// synthetic English glossary for the big data set: pseudo-words, a few phrases, inflected forms in the glosses
+function makeSynthEnglish(words) {
+  const r = mulberry32(31337), n = k => Math.floor(r() * k), p = a => a[n(a.length)];
+  const ON = ['b', 'c', 'd', 'f', 'g', 'h', 'k', 'l', 'm', 'n', 'p', 'r', 's', 't', 'w', 'st', 'tr', 'ch', 'sh', 'th', ''];
+  const VW = ['a', 'e', 'i', 'o', 'u', 'ai', 'ea', 'oo', 'ou'], CO = ['', 'n', 't', 'r', 's', 'l', 'm', 'd', 'ck', 'ng'];
+  const word = () => { let w = ''; for (let i = 1 + n(3); i > 0; i--) w += p(ON) + p(VW) + p(CO); return w; };
+  const en = {};
+  for (let t = 0; t < 7000; t++) {
+    const w = words[Math.min(words.length - 1, Math.floor(Math.pow(r(), 1.4) * words.length))];
+    const gl = [];
+    for (let i = 1 + n(3); i > 0; i--) {
+      let g = word();
+      if (r() < 0.25) g += ' ' + word();
+      if (r() < 0.2) g = g + p(['ing', 'ed', 's', 'es']);
+      if (r() < 0.05) g = g.toUpperCase();
+      if (r() < 0.05) g += "'s";
+      gl.push(g);
+    }
+    en[w] = gl.join(', ');
+  }
+  return en;
+}
 const synth = makeSynth();
+const synthEnText = JSON.stringify(makeSynthEnglish(synth.data.words));
+fs.writeFileSync(path.join(HERE, 'synth_english.json'), synthEnText + '\n');
 const synthDataText = JSON.stringify(synth.data), synthLexText = JSON.stringify(synth.lex);
 fs.writeFileSync(path.join(HERE, 'synth_data.json'), synthDataText + '\n');
 fs.writeFileSync(path.join(HERE, 'synth_lexicon.json'), synthLexText + '\n');
-const synthRef = loadRef(synthDataText, synthLexText);
+const synthRef = loadRef(synthDataText, synthLexText, synthEnText);
 
 // ------------------------------------------------------------------ input generators
 function fuzzCluster() {
@@ -183,13 +207,13 @@ write('tables.json', {
 const LATIN = /[A-Za-z'\-]+$/;
 function refreshJS(ref, text, mode, completedWord) {
   const E = ref.E, before = ref.normalize(text);
-  const tok = mode === 'latin' && completedWord == null ? (LATIN.exec(before) || [''])[0] : '';
+  const tok = mode !== 'khmer' && completedWord == null ? (LATIN.exec(before) || [''])[0] : '';
   let ctx, current;
   if (tok) {
     ctx = E.analyze(before.slice(0, before.length - tok.length));
     if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ''; }
     ctx.token = tok;
-    current = E.romSuggest(tok, ctx);
+    current = mode === 'english' ? E.enSuggest(tok, ctx) : E.romSuggest(tok, ctx);
   } else {
     ctx = completedWord != null ? { prev: completedWord, partial: '', tokens: E.analyze(before).tokens } : E.analyze(before);
     current = E.suggest(ctx);
@@ -201,21 +225,23 @@ const acceptInfo = (ref, text, completedWord, ctx, c) =>
 function keyJS(ref, text, mode, key, completedWord) {
   const E = ref.E;
   if (key === 'space') {            // commitLatin: the text before the caret does not include the space
-    if (mode !== 'latin') return null;
+    if (mode === 'khmer') return null;
     const m = LATIN.exec(text); if (!m) return null;
     const pre = ref.normalize(text.slice(0, text.length - m[0].length));
     const ctx = E.analyze(pre); if (ctx.partial) ctx.prev = ctx.partial;
-    const top = E.romSuggest(m[0], ctx)[0]; if (!top) return null;
+    const top = mode === 'english' ? E.enSuggest(m[0], ctx).find((c, i) => i === 0 && c.tier < 1) : E.romSuggest(m[0], ctx)[0]; if (!top) return null;
     return { word: top.word, replace: m[0] };
   }
   const r = refreshJS(ref, text, mode, completedWord);
   if (!r.current.length) return null;
-  const pending = mode === 'latin' && LATIN.test(text);
+  const pending = mode !== 'khmer' && LATIN.test(text);
   if (key === 'tab' || (key === 'enter' && pending)) return acceptInfo(ref, text, completedWord, r.ctx, r.current[0]);
   return null;
 }
 const cleanCand = c => ({ word: c.word, kind: c.kind, append: !!c.append, p: c.p, tier: c.tier === undefined ? null : c.tier, rom: c.rom === undefined ? null : c.rom, why: c.why === undefined ? null : c.why });
 
+const ON_E = ['b', 'd', 'k', 'm', 'p', 's', 't', 'st', 'sh', ''], VW_E = ['a', 'e', 'i', 'o', 'u', 'ea', 'oo'], CO_E = ['', 'n', 't', 'r', 's', 'l', 'ck'];
+const pick2 = (a, rp) => rp(a);
 function engineGolden(name, ref, words, sents, latinPool) {
   const E = ref.E;
   const texts = [];
@@ -277,7 +303,38 @@ function engineGolden(name, ref, words, sents, latinPool) {
       }
     }
   }
-  write(`engine_${name}.json`, { name, analyze, khmer, latin, compose: comp, flows });
+  // ---- English mode (own PRNG: adding it must not move any existing vector)
+  const RE = mulberry32(555 + words.length), re = k => Math.floor(RE() * k), rp = a => a[re(a.length)];
+  const glosses = [...new Set(Object.values(ref.EN).flatMap(v => v.split(',')).map(g => g.trim()).filter(Boolean))];
+  // the typo scan is slow in the JS reference, so the big synthetic set gets fewer tokens than the seed set
+  const cap = glosses.length > 2000 ? 110 : 900;
+  const pool = glosses.length > cap ? glosses.filter((_, i) => i % Math.ceil(glosses.length / cap) === 0) : glosses;
+  const etoks = [];
+  const mut = x => { const i = re(x.length + 1); return [x.slice(0, i) + x.slice(i + 1), x.slice(0, i) + rp([...'abcdeghiklmnoprstuvy']) + x.slice(i), x.slice(0, i) + rp([...'abcdeghiklmnoprstuvy']) + x.slice(i + 1)][re(3)]; };
+  for (const g of pool) {
+    const w1 = g.split(' ')[0];
+    etoks.push(g, g.toUpperCase(), w1, g.slice(0, 1 + re(g.length)), mut(g), w1 + rp(['ing', 'ed', 's', 'es', 'ly']), w1.replace(/e$/, '') + 'ing', w1 + w1[w1.length - 1] + 'ed', w1.replace(/y$/, 'ies'));
+  }
+  etoks.push('water', 'eating', 'teachers', 'wat', 'watr', 'hello', 'xyzq', 'i', 'a', "o'clock", 'good-morning', 'Good', '', '-', "'", 'THANK', 'happier', 'stopped', 'cities', 'the');
+  for (let i = 0; i < 80; i++) etoks.push(Array.from({ length: 1 + re(3) }, () => rp(ON_E) + rp(VW_E) + rp(CO_E)).join(''));
+  const english = etoks.map(tk => {
+    const t = rp(['', '', pick2(sents, rp).split(' ').slice(0, 2).join(' ') + ' ']);
+    const ctx = E.analyze(ref.normalize(t)); if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ''; }
+    return { text: t, token: tk, prev: ctx.prev, out: E.enSuggest(tk, ctx).map(cleanCand) };
+  });
+  const flowsEn = [];
+  const ftexts = [];
+  for (const tk of etoks.filter((_, i) => i % 7 === 0).slice(0, glosses.length > 2000 ? 40 : 120)) { ftexts.push(tk, tk + ' ', pick2(sents, rp).split(' ').slice(0, 1 + re(2)).join(' ') + ' ' + tk.replace(/[^A-Za-z'-]/g, '')); }
+  ftexts.push('water', 'eating', 'wat', 'thank', 'ខ្ញុំ water', 'xyzq', '');
+  for (const t of ftexts) {
+    const r2 = refreshJS(ref, t, 'english', null);
+    flowsEn.push({
+      text: t, mode: 'english', completed: null,
+      current: r2.current.map(c => ({ ...cleanCand(c), replace: r2.tok ? r2.tok : acceptInfo(ref, t, null, r2.ctx, c).replace })),
+      keys: Object.fromEntries(['space', 'enter', 'tab'].map(k => [k, keyJS(ref, t, 'english', k, null)])),
+    });
+  }
+  write(`engine_${name}.json`, { name, analyze, khmer, latin, compose: comp, flows, english, flowsEn });
 }
 
 const synthWords = synth.data.words;

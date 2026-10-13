@@ -25,8 +25,8 @@ for (const c of gold('text.json')) {
 }
 for (const c of gold('romkey.json')) check(romKey(c.s) === c.key, () => `romKey ${JSON.stringify(c.s)}`);
 
-function engine(name, data, lex) {
-  const e = new WasmEngine(data, lex);
+function engine(name, data, lex, en) {
+  const e = new WasmEngine(data, lex, en);
   const g = gold(`engine_${name}.json`);
   for (const c of g.analyze) {
     const a = JSON.parse(e.analyze(normalize(c.text)));
@@ -47,9 +47,10 @@ function engine(name, data, lex) {
     const got = JSON.parse(e.compose(c.t));
     check(got.length === c.out.length && got.every((a, i) => a.word === c.out[i].word && a.why === c.out[i].why && num(a.score, c.out[i].score)), () => `${name} compose ${c.t}`);
   }
+  for (const c of g.english) check(cands(JSON.parse(e.englishCandidates(c.token, c.prev)), c.out, true), () => `${name} english ${JSON.stringify(c.token)} prev=${c.prev}`);
   const KEY = { space: 0, enter: 1, tab: 2 };
-  for (const f of g.flows) {
-    const mode = f.mode === 'latin' ? 1 : 0;
+  for (const f of [...g.flows, ...g.flowsEn]) {
+    const mode = f.mode === 'latin' ? 1 : f.mode === 'english' ? 2 : 0;
     const got = JSON.parse(e.suggest(f.text, mode, f.completed ?? undefined));
     const ok = got.length === f.current.length && got.every((a, i) => {
       const b = f.current[i];
@@ -65,8 +66,8 @@ function engine(name, data, lex) {
   }
   e.free();
 }
-engine('seed', rd('data/data.json'), rd('data/lexicon.json'));
-engine('synth', rd('tests/golden/synth_data.json'), rd('tests/golden/synth_lexicon.json'));
+engine('seed', rd('data/data.json'), rd('data/lexicon.json'), rd('data/english.json'));
+engine('synth', rd('tests/golden/synth_data.json'), rd('tests/golden/synth_lexicon.json'), rd('tests/golden/synth_english.json'));
 
 // the compiled format loads in wasm too (made by khbuild; here we only check bad input is an error, not a crash)
 let threw = false;

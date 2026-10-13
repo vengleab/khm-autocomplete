@@ -1,6 +1,7 @@
 //! Language data: vocabulary, frequencies, bigrams and the Latin sound index.
 //! Built from `data.json` + `lexicon.json` (interchange format) or loaded from the compiled `khdata.bin`.
 use crate::cluster::{cluster_offsets, clusters};
+use crate::english::en_key;
 use crate::romanize::romanize;
 use crate::romkey::rom_key;
 use crate::split_js_space;
@@ -10,7 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 /// Words below this index feed the typo scans (Khmer fuzzy and Latin tier 2).
 pub const FUZZY_WORDS: usize = 20_000;
-const MAGIC: &[u8; 8] = b"KHDATA01";
+const MAGIC: &[u8; 8] = b"KHDATA02";
+const MAGIC_V1: &[u8; 8] = b"KHDATA01";
 
 #[derive(Debug)]
 pub enum Error {
@@ -106,6 +108,11 @@ pub struct Model {
     pub shown: StrTable,
     /// indices into the rom_* arrays whose word id is below FUZZY_WORDS
     pub rom_top: Vec<u32>,
+    /// English glossary index: sorted English glosses -> word ids (empty when no glossary was given)
+    pub en_keys: StrTable,
+    pub en_w: Vec<u32>,
+    /// indices into the en_* arrays whose word id is below FUZZY_WORDS
+    pub en_top: Vec<u32>,
     /// share of corpus tokens by first letter; ranks `compose` guesses
     pub prior: HashMap<char, f64>,
     pub max_len: usize,
@@ -115,6 +122,12 @@ pub struct Model {
 
 impl Model {
     pub fn from_json(data: &str, lexicon: &str) -> Result<Model, Error> {
+        Model::from_json_with_english(data, lexicon, None)
+    }
+
+    /// Like `from_json`, plus the text of `english.json` (Khmer word -> comma separated English glosses)
+    /// for English -> Khmer input.
+    pub fn from_json_with_english(data: &str, lexicon: &str, english: Option<&str>) -> Result<Model, Error> {
         let d: JsonData = serde_json::from_str(data).map_err(|e| Error::Json(e.to_string()))?;
         let lex: HashMap<String, String> = serde_json::from_str(lexicon).map_err(|e| Error::Json(e.to_string()))?;
         if d.words.len() != d.freq.len() {
@@ -183,6 +196,23 @@ impl Model {
         let rom_keys = StrTable::new(entries.iter().map(|e| e.0.as_str()));
         let rom_w: Vec<u32> = entries.iter().map(|e| e.1).collect();
         let rom_gen: Vec<bool> = entries.iter().map(|e| e.2).collect();
+        let en: HashMap<String, String> = match english {
+            Some(t) => serde_json::from_str(t).map_err(|e| Error::Json(e.to_string()))?,
+            None => HashMap::new(),
+        };
+        let mut en_entries: Vec<(String, u32)> = Vec::new();
+        for (i, w) in d.words.iter().enumerate() {
+            let mut seen: HashSet<String> = HashSet::new();
+            for g in en.get(w).map(String::as_str).unwrap_or("").split(',') {
+                let k = en_key(g);
+                if !k.is_empty() && seen.insert(k.clone()) {
+                    en_entries.push((k, i as u32));
+                }
+            }
+        }
+        en_entries.sort_by(|a, b| a.0.cmp(&b.0)); // stable, like the reference
+        let en_keys = StrTable::new(en_entries.iter().map(|e| e.0.as_str()));
+        let en_w: Vec<u32> = en_entries.iter().map(|e| e.1).collect();
         let meta = d.meta;
         Model::assemble(
             StrTable::new(&d.words),
@@ -195,6 +225,7 @@ impl Model {
             rom_w,
             rom_gen,
             StrTable::new(&shown),
+            (en_keys, en_w),
             None,
         )
     }
@@ -211,6 +242,7 @@ impl Model {
         rom_w: Vec<u32>,
         rom_gen: Vec<bool>,
         shown: StrTable,
+        (en_keys, en_w): (StrTable, Vec<u32>),
         fst_bytes: Option<Vec<u8>>,
     ) -> Result<Model, Error> {
         let nw = words.len();
@@ -254,6 +286,7 @@ impl Model {
         }
         let rom_top: Vec<u32> =
             (0..rom_w.len() as u32).filter(|&e| (rom_w[e as usize] as usize) < FUZZY_WORDS).collect();
+        let en_top: Vec<u32> = (0..en_w.len() as u32).filter(|&e| (en_w[e as usize] as usize) < FUZZY_WORDS).collect();
         Ok(Model {
             words,
             freq,
@@ -270,6 +303,9 @@ impl Model {
             rom_gen,
             shown,
             rom_top,
+            en_keys,
+            en_w,
+            en_top,
             prior,
             max_len: max_len.min(24),
             cl,
@@ -338,6 +374,19 @@ impl Model {
         let mut s = self.index.range().ge(p).into_stream();
         matches!(s.next(), Some((k, _)) if k.starts_with(p.as_bytes()))
     }
+    /// First index in the sorted English index whose gloss is >= p.
+    pub fn lower_en(&self, p: &str) -> usize {
+        let (mut lo, mut hi) = (0, self.en_keys.len());
+        while lo < hi {
+            let m = (lo + hi) / 2;
+            if self.en_keys.get(m) < p {
+                lo = m + 1;
+            } else {
+                hi = m;
+            }
+        }
+        lo
+    }
     /// First index in the sorted sound index whose key is >= p.
     pub fn lower_rom(&self, p: &str) -> usize {
         let (mut lo, mut hi) = (0, self.rom_keys.len());
@@ -384,12 +433,16 @@ impl Model {
         put(&mut out, &self.rom_gen.iter().map(|&g| g as u8).collect::<Vec<_>>());
         put(&mut out, &table(&self.shown));
         put(&mut out, self.index.as_fst().as_bytes());
+        put(&mut out, &table(&self.en_keys));
+        put(&mut out, &u32s(&self.en_w));
         out
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Model, Error> {
         let bad = |m: &str| Error::Format(m.to_string());
-        if bytes.len() < 8 || &bytes[..8] != MAGIC {
+        // v1 files (no English glossary) still load; v2 adds the glossary sections at the end
+        let v2 = bytes.len() >= 8 && &bytes[..8] == MAGIC;
+        if !v2 && !(bytes.len() >= 8 && &bytes[..8] == MAGIC_V1) {
             return Err(bad("not a khdata file, or an unsupported version"));
         }
         let mut pos = 8usize;
@@ -434,6 +487,11 @@ impl Model {
         let rom_gen: Vec<bool> = next()?.iter().map(|&b| b != 0).collect();
         let shown = to_table(next()?)?;
         let fst_bytes = next()?.to_vec();
+        let (en_keys, en_w) =
+            if v2 { (to_table(next()?)?, to_u32s(next()?)?) } else { (StrTable::new(Vec::<&str>::new()), Vec::new()) };
+        if en_keys.len() != en_w.len() || en_w.iter().any(|&w| w as usize >= words.len()) {
+            return Err(bad("english index out of range"));
+        }
         if freq.len() != words.len()
             || bi.0.len() != words.len() + 2
             || rom_w.len() != rom_keys.len()
@@ -471,6 +529,7 @@ impl Model {
             rom_w,
             rom_gen,
             shown,
+            (en_keys, en_w),
             Some(fst_bytes),
         )
     }

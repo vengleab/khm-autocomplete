@@ -73,6 +73,21 @@ for (const { name, file, wasm } of pages) {
   seen.empty = await chips();
   await pg.click('#m-latin');
   for (const t of ['knhom', 'sralanh', 'kea', 'ma']) { await pg.fill('#text', t); seen['latin ' + t] = await chips(); }
+  // English -> Khmer mode: Space converts a confident word, a half-typed word is left alone, Tab takes a prefix match
+  await pg.click('#m-english');
+  await pg.focus('#text');
+  await pg.keyboard.type('i love cambodia eating rice wat ');
+  const en = await pg.inputValue('#text');
+  if (en !== 'ខ្ញុំស្រលាញ់កម្ពុជាញ៉ាំបាយwat ') fail(`English flow: got ${en}`);
+  await pg.fill('#text', 'water');
+  seen['english water'] = await chips();
+  if (!seen['english water'][0]?.includes('ទឹក')) fail(`water should suggest ទឹក first: ${seen['english water']}`);
+  for (const t of ['eating', 'teachers', 'watr', 'good']) { await pg.fill('#text', t); seen['english ' + t] = await chips(); }
+  await pg.fill('#text', 'wat');
+  await pg.focus('#text');
+  await pg.keyboard.press('End');
+  await pg.keyboard.press('Tab');
+  if ((await pg.inputValue('#text')) !== 'ទឹក') fail(`Tab on "wat" gave ${await pg.inputValue('#text')}`);
   strips[name] = seen;
 
   if (errors.length) fail('page errors: ' + errors.join('; '));

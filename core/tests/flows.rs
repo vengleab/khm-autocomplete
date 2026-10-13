@@ -13,10 +13,14 @@ fn replace_tail(text: &str, n: usize, with: &str) -> String {
 
 /// A tiny model of a text field with a Latin-mode keyboard: type one character at a time.
 fn type_latin(e: &Engine, input: &str) -> String {
+    type_in(e, Mode::Latin, input)
+}
+
+fn type_in(e: &Engine, mode: Mode, input: &str) -> String {
     let mut text = String::new();
     for ch in input.chars() {
         if ch == ' ' {
-            if let KeyAction::Insert(c) = e.key_action(&text, Mode::Latin, Key::Space, None) {
+            if let KeyAction::Insert(c) = e.key_action(&text, mode, Key::Space, None) {
                 text = replace_tail(&text, c.replace_len_utf16, &c.word);
                 continue; // the space was swallowed
             }
@@ -35,6 +39,81 @@ fn latin_flow_knyom_soksabay() {
     // no candidate: text and space are left alone
     let e2 = seed_engine();
     assert!(matches!(e2.key_action("", Mode::Latin, Key::Space, None), KeyAction::PassThrough));
+}
+
+#[test]
+fn english_flow_words_become_khmer() {
+    let e = seed_engine();
+    // each English word is converted when Space is pressed; Khmer is written without spaces between words
+    assert_eq!(type_in(&e, Mode::English, "i love cambodia "), "ខ្ញុំស្រលាញ់កម្ពុជា");
+    assert_eq!(type_in(&e, Mode::English, "eating rice "), "ញ៉ាំបាយ"); // eating -> eat (inflection)
+    assert_eq!(type_in(&e, Mode::English, "thank you "), "អរគុណអ្នក");
+    assert_eq!(type_in(&e, Mode::English, "good morning "), "ល្អព្រឹក");
+    // a word with no gloss stays English and the space is kept
+    assert_eq!(type_in(&e, Mode::English, "xyzq water "), "xyzq ទឹក");
+    // a half-typed word is not converted by Space (only Tab/Enter or a click take a prefix match)
+    assert_eq!(type_in(&e, Mode::English, "wat "), "wat ");
+}
+
+#[test]
+fn english_mode_details() {
+    let e = seed_engine();
+    let c = e.suggest("water", Mode::English, None);
+    assert_eq!(c[0].word, "ទឹក");
+    assert_eq!(c[0].kind, Kind::Exact);
+    assert_eq!(c[0].roman.as_deref(), Some("water"));
+    assert_eq!(c[0].replace, "water");
+    assert_eq!(c[0].replace_len_utf16, 5);
+    assert_eq!(Engine::keystroke_gain(&c[0]), 0);
+    // inflections, case and hyphens
+    assert_eq!(e.suggest("Teachers", Mode::English, None)[0].word, "គ្រូ");
+    assert!(e.suggest("good-morning", Mode::English, None).iter().any(|x| x.word == "អរុណសួស្តី"));
+    // a close typo
+    let t = e.suggest("watr", Mode::English, None);
+    assert_eq!((t[0].word.as_str(), t[0].kind), ("ទឹក", Kind::Fuzzy));
+    // nothing for gibberish, and after a Khmer word the context still ranks candidates
+    assert!(e.suggest("xyzq", Mode::English, None).is_empty());
+    assert!(!e.suggest("ខ្ញុំ go", Mode::English, None).is_empty());
+    // Enter takes the top candidate of a pending English word, even a prefix match
+    match e.key_action("wat", Mode::English, Key::Enter, None) {
+        KeyAction::Insert(c) => assert_eq!(c.word, "ទឹក"),
+        a => panic!("{a:?}"),
+    }
+    // an engine without a glossary offers nothing in English mode and does not fail
+    let plain = Engine::load(
+        root().join("data/data.json").to_str().unwrap(),
+        root().join("data/lexicon.json").to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(plain.suggest("water", Mode::English, None).is_empty());
+}
+
+#[test]
+fn every_gloss_finds_its_word() {
+    // Single-word glosses must bring their Khmer word back as an exact match. A multi-word gloss ("good morning")
+    // cannot be typed as one token (a token has no spaces), so it must be reachable by its first word instead.
+    let e = seed_engine();
+    let g: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(root().join("data/english.json")).unwrap()).unwrap();
+    let mut bad = Vec::new();
+    for (word, glosses) in &g {
+        for gl in glosses.as_str().unwrap().split(',') {
+            let gl = gl.trim();
+            let first = gl.split(' ').next().unwrap();
+            let multi = gl.contains(' ');
+            if multi && first.len() <= 2 {
+                continue; // "a lot", "in order to": a one- or two-letter first word matches too many entries
+            }
+            let hit = e
+                .suggest(first, Mode::English, None)
+                .into_iter()
+                .any(|c| c.word == *word && (multi || c.kind == Kind::Exact));
+            if !hit {
+                bad.push(format!("{gl} -> {word}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "glosses that do not find their word: {bad:?}");
 }
 
 #[test]
@@ -135,8 +214,12 @@ fn compiled_format_matches_json_loading() {
         let b = Engine::from_model(Model::from_bytes(&bytes).unwrap());
         let g = golden(&format!("engine_{name}.json"));
         let mut f = Fails::default();
-        for c in g["flows"].as_array().unwrap() {
-            let mode = if s(&c["mode"]) == "latin" { Mode::Latin } else { Mode::Khmer };
+        for c in g["flows"].as_array().unwrap().iter().chain(g["flowsEn"].as_array().unwrap()) {
+            let mode = match s(&c["mode"]) {
+                "latin" => Mode::Latin,
+                "english" => Mode::English,
+                _ => Mode::Khmer,
+            };
             let (t, j) = (s(&c["text"]), c["completed"].as_str());
             f.check(digest(&e.suggest(t, mode, j)) == digest(&b.suggest(t, mode, j)), || {
                 format!("{name}: {t:?} {mode:?}")
@@ -146,6 +229,32 @@ fn compiled_format_matches_json_loading() {
         f.check(Model::from_bytes(&bytes).unwrap().to_bytes() == bytes, || format!("{name}: re-serialization differs"));
         f.finish(&format!("compiled {name}"));
     }
+}
+
+#[test]
+fn compiled_v1_files_still_load() {
+    // a v1 file is a v2 file without the English sections and with the old magic
+    let e = Engine::from_model(
+        Model::from_json(
+            &std::fs::read_to_string(root().join("data/data.json")).unwrap(),
+            &std::fs::read_to_string(root().join("data/lexicon.json")).unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut b = e.model().to_bytes();
+    b[..8].copy_from_slice(b"KHDATA01");
+    // drop the last two sections (english keys, english ids): each is a u64 length + payload
+    let mut pos = 8;
+    let mut ends = vec![];
+    while pos < b.len() {
+        let n = u64::from_le_bytes(b[pos..pos + 8].try_into().unwrap()) as usize;
+        pos += 8 + n;
+        ends.push(pos);
+    }
+    b.truncate(ends[ends.len() - 3]);
+    let v1 = Engine::from_model(Model::from_bytes(&b).unwrap());
+    assert_eq!(v1.suggest("knyom", Mode::Latin, None)[0].word, "ខ្ញុំ");
+    assert!(v1.suggest("water", Mode::English, None).is_empty());
 }
 
 #[test]

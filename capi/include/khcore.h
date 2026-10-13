@@ -20,6 +20,9 @@
 // Input mode: Latin letters (Khmerlish).
 #define KH_MODE_LATIN 1
 
+// Input mode: English words, Khmer suggestions (needs an engine opened with an English glossary).
+#define KH_MODE_ENGLISH 2
+
 // Key: Space.
 #define KH_KEY_SPACE 0
 
@@ -28,6 +31,12 @@
 
 // Key: Tab.
 #define KH_KEY_TAB 2
+
+// Key code kind: macOS virtual key code (`NSEvent.keyCode`).
+#define KH_KEYCODE_MAC 0
+
+// Key code kind: Windows scan code, set 1, without the 0xE0 prefix.
+#define KH_KEYCODE_WINDOWS_SCAN 1
 
 // An opened engine (opaque).
 typedef struct KhEngine KhEngine;
@@ -44,6 +53,12 @@ uint32_t kh_abi_version(void);
 struct KhEngine *kh_engine_open(const char *data_path,
                                 const char *lexicon_path);
 
+// Like `kh_engine_open`, plus `english.json` (Khmer word -> English glosses) for `KH_MODE_ENGLISH`.
+// Returns NULL on failure.
+struct KhEngine *kh_engine_open_with_english(const char *data_path,
+                                             const char *lexicon_path,
+                                             const char *english_path);
+
 // Open an engine from a compiled `khdata.bin` made by `khbuild`. Returns NULL on failure.
 struct KhEngine *kh_engine_open_compiled(const char *path);
 
@@ -56,6 +71,7 @@ void kh_engine_free(struct KhEngine *engine);
 
 // Candidates for the text before the caret, as a JSON array (best first, at most 8):
 // `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`.
+// In Latin and English modes `roman` is the Latin spelling / the matched English gloss.
 // `mode` is `KH_MODE_*`. `just_accepted` is the word the user just accepted, or NULL (see Engine::suggest).
 char *kh_suggest(const struct KhEngine *engine,
                  const char *text_before_caret,
@@ -71,6 +87,14 @@ char *kh_key_action(const struct KhEngine *engine,
                     int32_t mode,
                     int32_t key,
                     const char *just_accepted);
+
+// What a physical key types in Khmer-script mode (Khmer NiDA layout), as a UTF-8 string, or NULL when the key
+// is not part of the layout (not an error: let the key through). `kind` is `KH_KEYCODE_*`; `shift` and `altgr`
+// (right Alt on Windows, Option on macOS) are 0 or 1. Space is not part of the layout; see core/src/layout.rs.
+char *kh_layout_map(int32_t kind,
+                    uint32_t code,
+                    int32_t shift,
+                    int32_t altgr);
 
 // Release a string returned by this library. NULL is allowed.
 void kh_string_free(char *s);

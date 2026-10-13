@@ -1,0 +1,12 @@
+{
+  "name": "khmer-lm-small",
+  "version": "0.0.0",
+  "kind": "onnx-causal-lm",
+  "file": "model.int8.onnx",
+  "size_bytes": 1,
+  "tokenizer": "tokenizer.model",
+  "context_tokens": 32,
+  "rerank_top_k": 20,
+  "blend_alpha": 0.5,
+  "license": "TBD (placeholder: no model ships yet)"
+}

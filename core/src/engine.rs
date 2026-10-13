@@ -19,8 +19,12 @@ pub enum Kind {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
+    /// type Khmer script
     Khmer,
+    /// type Khmer in Latin letters (Khmerlish)
     Latin,
+    /// type English words, get Khmer suggestions
+    English,
 }
 
 /// What a shell needs to show and insert one suggestion.
@@ -75,6 +79,15 @@ impl Engine {
         let rd = |p: &str| std::fs::read_to_string(p).map_err(|e| Error::Io(format!("{p}: {e}")));
         Ok(Engine::from_model(Model::from_json(&rd(data_path)?, &rd(lexicon_path)?)?))
     }
+    /// Load `data.json` + `lexicon.json` + `english.json` (the English -> Khmer glossary).
+    pub fn load_with_english(data_path: &str, lexicon_path: &str, english_path: &str) -> Result<Engine, Error> {
+        let rd = |p: &str| std::fs::read_to_string(p).map_err(|e| Error::Io(format!("{p}: {e}")));
+        Ok(Engine::from_model(Model::from_json_with_english(
+            &rd(data_path)?,
+            &rd(lexicon_path)?,
+            Some(&rd(english_path)?),
+        )?))
+    }
     /// Load the compiled `khdata.bin` made by `khbuild` (fast start).
     pub fn load_compiled(path: &str) -> Result<Engine, Error> {
         let b = std::fs::read(path).map_err(|e| Error::Io(format!("{path}: {e}")))?;
@@ -101,10 +114,15 @@ impl Engine {
         suggest::rom_suggest(&self.model, self.scorer.as_ref(), token, prev, LIMIT)
     }
 
+    /// English -> Khmer candidates for a pending English token after `prev`; `roman` is the matched gloss.
+    pub fn english_candidates(&self, token: &str, prev: &str) -> Vec<Cand> {
+        suggest::english_suggest(&self.model, self.scorer.as_ref(), token, prev, LIMIT)
+    }
+
     /// The reference's `refresh()`: decide what is pending and rank candidates.
     pub(crate) fn resolve(&self, text_before: &str, mode: Mode, just_accepted: Option<&str>) -> Resolved {
         let before = normalize(text_before);
-        let token = if mode == Mode::Latin && just_accepted.is_none() {
+        let token = if mode != Mode::Khmer && just_accepted.is_none() {
             latin_suffix(&before).to_string()
         } else {
             String::new()
@@ -115,7 +133,11 @@ impl Engine {
                 ctx.tokens.push(ctx.partial.clone());
                 ctx.prev = std::mem::take(&mut ctx.partial);
             }
-            let cands = self.latin_candidates(&token, &ctx.prev);
+            let cands = if mode == Mode::English {
+                self.english_candidates(&token, &ctx.prev)
+            } else {
+                self.latin_candidates(&token, &ctx.prev)
+            };
             return Resolved { before, token, ctx, cands, just_accepted: false };
         }
         let ctx = match just_accepted {

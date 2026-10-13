@@ -13,11 +13,13 @@ pub fn golden(name: &str) -> Value {
 }
 pub fn seed_engine() -> Engine {
     let r = root();
-    Engine::load(r.join("data/data.json").to_str().unwrap(), r.join("data/lexicon.json").to_str().unwrap()).unwrap()
+    let p = |f: &str| r.join(f).to_str().unwrap().to_string();
+    Engine::load_with_english(&p("data/data.json"), &p("data/lexicon.json"), &p("data/english.json")).unwrap()
 }
 pub fn synth_engine() -> Engine {
     let r = root().join("tests/golden");
-    Engine::load(r.join("synth_data.json").to_str().unwrap(), r.join("synth_lexicon.json").to_str().unwrap()).unwrap()
+    let p = |f: &str| r.join(f).to_str().unwrap().to_string();
+    Engine::load_with_english(&p("synth_data.json"), &p("synth_lexicon.json"), &p("synth_english.json")).unwrap()
 }
 
 /// Collects mismatches so one run shows many of them, then fails once.

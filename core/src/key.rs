@@ -23,19 +23,22 @@ impl Engine {
     pub fn key_action(&self, text_before_caret: &str, mode: Mode, key: Key, just_accepted: Option<&str>) -> KeyAction {
         match key {
             Key::Space => {
-                // Latin mode only; with no token or no candidate the space is left alone
-                if mode != Mode::Latin {
+                // Latin and English modes only; with no token or no candidate the space is left alone.
+                // English converts only a confident match (the word or an inflection of it), never a half-typed word.
+                if mode == Mode::Khmer {
                     return KeyAction::PassThrough;
                 }
-                let r = self.resolve(text_before_caret, Mode::Latin, None);
+                let r = self.resolve(text_before_caret, mode, None);
                 match (r.token.is_empty(), r.cands.first()) {
-                    (false, Some(c)) => KeyAction::Insert(self.shape(text_before_caret, &r, c)),
+                    (false, Some(c)) if mode == Mode::Latin || c.tier.is_some_and(|t| t < 1.0) => {
+                        KeyAction::Insert(self.shape(text_before_caret, &r, c))
+                    }
                     _ => KeyAction::PassThrough,
                 }
             }
             Key::Enter => {
                 // with a pending Latin token Enter accepts the top candidate instead of inserting a newline
-                if mode != Mode::Latin || latin_suffix(text_before_caret).is_empty() || just_accepted.is_some() {
+                if mode == Mode::Khmer || latin_suffix(text_before_caret).is_empty() || just_accepted.is_some() {
                     return KeyAction::PassThrough;
                 }
                 let r = self.resolve(text_before_caret, mode, just_accepted);

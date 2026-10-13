@@ -3,6 +3,7 @@
 use crate::cluster::cluster_offsets;
 use crate::compose::compose;
 use crate::engine::Kind;
+use crate::english::{en_key, stems};
 use crate::model::{Model, FUZZY_WORDS};
 use crate::romkey::{lev_s, rom_key, within_one};
 use crate::scorer::Scorer;
@@ -294,4 +295,88 @@ impl Best {
             }
         }
     }
+}
+
+/// Best tier per word and the gloss that earned it, in first-seen order.
+#[derive(Default)]
+struct BestEn {
+    v: Vec<(u32, f64, usize)>,
+    pos: HashMap<u32, usize>,
+}
+impl BestEn {
+    fn hit(&mut self, m: &Model, e: usize, tier: f64) {
+        let w = m.en_w[e];
+        match self.pos.get(&w) {
+            None => {
+                self.pos.insert(w, self.v.len());
+                self.v.push((w, tier, e));
+            }
+            Some(&i) => {
+                if tier < self.v[i].1 {
+                    self.v[i].1 = tier;
+                    self.v[i].2 = e;
+                }
+            }
+        }
+    }
+}
+
+/// English -> Khmer: words whose English gloss is the typed word (tier 0), an inflection of it (0.5), starts
+/// with it (1) or is a close typo of it (2.1, 2.2). `roman` carries the matched gloss.
+pub fn english_suggest(m: &Model, scorer: &dyn Scorer, token: &str, prev: &str, limit: usize) -> Vec<Cand> {
+    let key = en_key(token);
+    if key.is_empty() {
+        return vec![];
+    }
+    let mut best = BestEn::default();
+    let mut i = m.lower_en(&key);
+    while i < m.en_keys.len() && m.en_keys.get(i).starts_with(&key) {
+        best.hit(m, i, if m.en_keys.get(i) == key { 0.0 } else { 1.0 });
+        i += 1;
+    }
+    for s in stems(&key) {
+        let mut i = m.lower_en(&s);
+        while i < m.en_keys.len() && m.en_keys.get(i) == s {
+            best.hit(m, i, 0.5);
+            i += 1;
+        }
+    }
+    if best.v.len() < limit && key.len() >= 4 {
+        let maxd: usize = if key.len() >= 7 { 2 } else { 1 };
+        for &e in &m.en_top {
+            let ek = m.en_keys.get(e as usize);
+            if key.len() > ek.len() + maxd {
+                continue;
+            }
+            let cut = &ek.as_bytes()[..key.len().min(ek.len())];
+            let d = lev_s(key.as_bytes(), ek.as_bytes()).min(lev_s(key.as_bytes(), cut));
+            if d >= 1 && d <= maxd {
+                best.hit(m, e as usize, 2.0 + 0.1 * d as f64);
+            }
+        }
+    }
+    let ids: Vec<u32> = best.v.iter().map(|b| b.0).collect();
+    let ps = score(scorer, m, &context_of(prev), &ids);
+    let mut items: Vec<(u32, f64, usize, f64)> = best.v.iter().zip(ps).map(|(&(w, t, e), p)| (w, t, e, p)).collect();
+    items.sort_by(|a, b| cmp_f(a.1, b.1).then_with(|| cmp_f(b.3, a.3)));
+    items.truncate(limit);
+    items
+        .into_iter()
+        .map(|(w, t, e, p)| Cand {
+            w: Some(w),
+            word: m.word(w).to_string(),
+            kind: if t < 1.0 {
+                Kind::Exact
+            } else if t < 2.0 {
+                Kind::Prefix
+            } else {
+                Kind::Fuzzy
+            },
+            p: Some(p),
+            append: false,
+            roman: Some(m.en_keys.get(e).to_string()),
+            why: None,
+            tier: Some(t),
+        })
+        .collect()
 }

@@ -6,10 +6,17 @@ description = "Portable Khmer autocomplete / Khmerlish engine (no platform code,
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+khlayout = { path = "../layout" }
 fst = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-normalization = "0.1"
+
+[features]
+default = []
+# Asynchronous neural re-ranking pipeline (core/src/neural.rs). Off by default; no ONNX runtime is linked yet.
+# When the ONNX scorer is implemented this becomes `neural = ["dep:ort"]`.
+neural = []
 
 [[bin]]
 name = "khbuild"

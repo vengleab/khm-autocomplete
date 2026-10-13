@@ -14,7 +14,13 @@ fn pct(v: &mut Vec<Duration>, p: f64) -> Duration {
 }
 
 /// Run `queries` against the engine; returns (name, p50, p99, max) per group and asserts the budget on p99 and max.
-fn measure(e: &Engine, words: &[String], budget: Duration, label: &str) {
+fn measure(
+    e: &Engine,
+    words: &[String],
+    glosses: &serde_json::Map<String, serde_json::Value>,
+    budget: Duration,
+    label: &str,
+) {
     let mut r = Rng(1234);
     let top = words.len().min(20_000);
     let w = |r: &mut Rng| &words[r.below(top)];
@@ -26,6 +32,8 @@ fn measure(e: &Engine, words: &[String], budget: Duration, label: &str) {
         ("latin: exact / prefix", vec![]),
         ("latin: typo (tier 2 scan)", vec![]),
         ("latin: nothing matches (compose)", vec![]),
+        ("english: exact / inflected / prefix", vec![]),
+        ("english: typo (tier 2 scan)", vec![]),
     ];
     for _ in 0..600 {
         let ctx = format!("{} {} ", w(&mut r), w(&mut r));
@@ -48,6 +56,19 @@ fn measure(e: &Engine, words: &[String], budget: Duration, label: &str) {
         }
         groups[5].1.push((format!("{ctx}{}", String::from_utf8(m).unwrap()), Mode::Latin));
         groups[6].1.push((format!("{ctx}qzxqzx{}", r.below(99)), Mode::Latin));
+        // English tokens come from the synthetic glossary (the first gloss of a glossed word)
+        let gw = &words[3 * r.below(top / 3)];
+        if let Some(g) = glosses.get(gw) {
+            let g = g.as_str().unwrap().split(',').next().unwrap().trim().split(' ').next().unwrap().to_string();
+            groups[7].1.push((
+                format!("{ctx}{}", [g.clone(), format!("{g}ing"), g[..1.max(g.len() / 2)].to_string()][r.below(3)]),
+                Mode::English,
+            ));
+            let mut m = g.clone().into_bytes();
+            let i = r.below(m.len());
+            m[i] = b'q';
+            groups[8].1.push((format!("{ctx}{}", String::from_utf8(m).unwrap()), Mode::English));
+        }
     }
     println!("{label}: budget {budget:?} per keystroke");
     let mut worst = Duration::ZERO;
@@ -72,20 +93,23 @@ fn measure(e: &Engine, words: &[String], budget: Duration, label: &str) {
 fn seed_data_under_10ms() {
     let e = seed_engine();
     let words: Vec<String> = (0..e.model().vocab()).map(|i| e.model().word(i as u32).to_string()).collect();
-    measure(&e, &words, Duration::from_millis(10), "seed data (277 words)");
+    let g = serde_json::from_str(&std::fs::read_to_string(root().join("data/english.json")).unwrap()).unwrap();
+    measure(&e, &words, &g, Duration::from_millis(10), "seed data (277 words)");
 }
 
 #[test]
 #[cfg_attr(debug_assertions, ignore = "timing needs --release")]
 fn hundred_thousand_words_under_30ms() {
     let (data, lex, words) = make(100_000, 42);
+    let en = common::synth::make_english(&words, 7);
+    let glosses: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&en).unwrap();
     let t0 = Instant::now();
-    let model = Model::from_json(&data, &lex).unwrap();
+    let model = Model::from_json_with_english(&data, &lex, Some(&en)).unwrap();
     println!("build from JSON: {:?}", t0.elapsed());
     let bytes = model.to_bytes();
     drop(model);
     let t0 = Instant::now();
     let e = Engine::from_model(Model::from_bytes(&bytes).unwrap());
     println!("load compiled ({:.1} MB): {:?}", bytes.len() as f64 / 1e6, t0.elapsed());
-    measure(&e, &words, Duration::from_millis(30), "synthetic 100,000 words");
+    measure(&e, &words, &glosses, Duration::from_millis(30), "synthetic 100,000 words");
 }

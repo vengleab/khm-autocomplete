@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Deterministic synthetic corpus of any size, for latency / memory tests (not for parity).
 use khcore::norm::normalize;
 use khcore::romanize::romanize;
@@ -90,4 +91,36 @@ pub fn make(n_words: usize, seed: u64) -> (String, String, Vec<String>) {
         let _ = i;
     }
     (data.to_string(), serde_json::Value::Object(lex).to_string(), words)
+}
+
+/// Synthetic English glossary (pseudo-words, a few phrases) for `words`, about two glosses for every third word.
+pub fn make_english(words: &[String], seed: u64) -> String {
+    let mut r = Rng(seed);
+    let on =
+        ["b", "c", "d", "f", "g", "h", "k", "l", "m", "n", "p", "r", "s", "t", "w", "st", "tr", "ch", "sh", "th", ""];
+    let vw = ["a", "e", "i", "o", "u", "ai", "ea", "oo", "ou"];
+    let co = ["", "n", "t", "r", "s", "l", "m", "d", "ck", "ng"];
+    let word = |r: &mut Rng| {
+        let mut w = String::new();
+        for _ in 0..1 + r.below(3) {
+            w.push_str(on[r.below(on.len())]);
+            w.push_str(vw[r.below(vw.len())]);
+            w.push_str(co[r.below(co.len())]);
+        }
+        w
+    };
+    let mut m = serde_json::Map::new();
+    for i in (0..words.len()).step_by(3) {
+        let mut gl = Vec::new();
+        for _ in 0..1 + r.below(3) {
+            let mut g = word(&mut r);
+            if r.f() < 0.25 {
+                g.push(' ');
+                g.push_str(&word(&mut r));
+            }
+            gl.push(g);
+        }
+        m.insert(words[i].clone(), gl.join(", ").into());
+    }
+    serde_json::Value::Object(m).to_string()
 }

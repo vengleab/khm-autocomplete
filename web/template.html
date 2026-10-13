@@ -169,6 +169,7 @@
         <div class="modes" role="group" aria-label="Input mode">
           <button type="button" class="mode" id="m-khmer" aria-pressed="true"><span class="kh">ខ្មែរ</span> Khmer script</button>
           <button type="button" class="mode" id="m-latin" aria-pressed="false">Latin input<span class="sub">Khmerlish</span></button>
+          <button type="button" class="mode" id="m-english" aria-pressed="false">English<span class="sub">→ Khmer</span></button>
         </div>
         <label for="text" class="sr" style="position:absolute;left:-9999px">Khmer text</label>
         <textarea id="text" lang="km" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="វាយអក្សរខ្មែរនៅទីនេះ…"></textarea>
@@ -176,6 +177,7 @@
         <div class="hint">
           <span id="hint-khmer"><kbd>Tab</kbd> accepts the first suggestion</span>
           <span id="hint-latin" hidden>Type Khmer in Latin letters, then press <kbd>Space</kbd> to convert the word. <kbd>Tab</kbd> picks the first suggestion.</span>
+          <span id="hint-english" hidden>Type an English word, then press <kbd>Space</kbd> to turn it into Khmer. <kbd>Tab</kbd> picks the first suggestion.</span>
           <span class="legend" id="legend"><i class="l-c">word</i>completes · <i class="l-n">word</i>next word · <i class="l-f">~word</i>typo fix</span>
         </div>
       </section>
@@ -228,6 +230,7 @@
 <script>
 const SEED = __DATA__;
 const LEX = __LEX__;
+const EN = __EN__;      // Khmer word -> English glosses, comma separated (data/english.json)
 
 /* ------------------------------------------------------------------ Khmer text */
 // Same rules as normalize() in build_data.py.
@@ -379,6 +382,25 @@ function levS(a, b) {
   return prev[b.length];
 }
 
+/* ------------------------------------------------------- English input (English -> Khmer) */
+// An English word typed in English mode is looked up in the glossary: Khmer word -> English glosses.
+// Keys are lowercase words/phrases; hyphens are spaces; only a-z, apostrophe and spaces survive.
+function enKey(s) { return s.toLowerCase().replace(/-/g, " ").replace(/[^a-z' ]/g, "").replace(/\s+/g, " ").trim(); }
+// Plausible base forms of an inflected English word (eating -> eat, eats, cities -> city, stopped -> stop).
+function enStems(k) {
+  const o = [], add = s => { if (s.length >= 2 && s !== k && !o.includes(s)) o.push(s); };
+  if (k.endsWith("ies") && k.length > 4) add(k.slice(0, -3) + "y");
+  if (k.endsWith("es")) add(k.slice(0, -2));
+  if (k.endsWith("s")) add(k.slice(0, -1));
+  if (k.endsWith("ing") && k.length > 4) { const b = k.slice(0, -3); add(b); add(b + "e"); if (b.length > 2 && b[b.length - 1] === b[b.length - 2]) add(b.slice(0, -1)); }
+  if (k.endsWith("ed") && k.length > 3) {
+    const b = k.slice(0, -2); add(b); add(b + "e"); if (b.length > 2 && b[b.length - 1] === b[b.length - 2]) add(b.slice(0, -1));
+    if (k.endsWith("ied") && k.length > 4) add(k.slice(0, -3) + "y");
+  }
+  if (k.endsWith("ly") && k.length > 4) add(k.slice(0, -2));
+  return o;
+}
+
 /* ---------------------------------------------------------------------- engine */
 class Engine {
   constructor(data) {
@@ -391,6 +413,7 @@ class Engine {
     this.bi = data.bi || {};
     this.sentences = this.meta.sentences || 1;
     this.buildRoman();
+    this.buildEnglish();
   }
   lower(p) { let lo = 0, hi = this.sorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.sorted[m][0] < p) lo = m + 1; else hi = m; } return lo; }
   hasPrefix(p) { const i = this.lower(p); return i < this.sorted.length && this.sorted[i][0].startsWith(p); }
@@ -454,6 +477,35 @@ class Engine {
     this.romTop = this.rom.filter(e => e.w < 20000);
     this.prior = {};                                   // how often words start with each letter
     this.words.forEach((w, i) => { this.prior[w[0]] = (this.prior[w[0]] || 0) + this.freq[i] / this.N; });
+  }
+  buildEnglish() {
+    this.en = [];
+    this.words.forEach((w, i) => {
+      const seen = new Set();
+      String(EN[w] || "").split(",").forEach(g => { const k = enKey(g); if (k && !seen.has(k)) { seen.add(k); this.en.push({ k, w: i }); } });
+    });
+    this.en.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+    this.enTop = this.en.filter(e => e.w < 20000);
+  }
+  lowerEn(p) { let lo = 0, hi = this.en.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.en[m].k < p) lo = m + 1; else hi = m; } return lo; }
+  // Khmer words whose English gloss is the typed word (tier 0), an inflection of it (0.5), starts with it (1) or is a typo of it (2.1, 2.2).
+  enSuggest(token, ctx, limit = 8) {
+    const key = enKey(token); if (!key) return [];
+    const row = this.row(ctx.prev), best = new Map();
+    const hit = (e, t) => { const c = best.get(e.w); if (c === undefined || t < c.t) best.set(e.w, { t, g: e.k }); };
+    for (let i = this.lowerEn(key); i < this.en.length && this.en[i].k.startsWith(key); i++) hit(this.en[i], this.en[i].k === key ? 0 : 1);
+    for (const s of enStems(key)) for (let i = this.lowerEn(s); i < this.en.length && this.en[i].k === s; i++) hit(this.en[i], 0.5);
+    if (best.size < limit && key.length >= 4) {
+      const maxd = key.length >= 7 ? 2 : 1;
+      for (const e of this.enTop) {
+        if (key.length - e.k.length > maxd) continue;
+        const d = Math.min(levS(key, e.k), levS(key, e.k.slice(0, key.length)));
+        if (d >= 1 && d <= maxd) hit(e, 2 + 0.1 * d);
+      }
+    }
+    const out = [...best.entries()].map(([w, b]) => ({ w, word: this.words[w], kind: b.t < 1 ? "exact" : b.t < 2 ? "prefix" : "fuzzy", tier: b.t, p: this.prob(w, row), rom: b.g, replace: token }));
+    out.sort((a, b) => a.tier - b.tier || b.p - a.p);
+    return out.slice(0, limit);
   }
   lowerRom(p) { let lo = 0, hi = this.rom.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.rom[m].k < p) lo = m + 1; else hi = m; } return lo; }
   // Words whose Latin spelling sounds like the token: exact sound, starts with it, or one or two letters off.
@@ -537,13 +589,13 @@ function caret() { return document.activeElement === ta ? ta.selectionStart : ta
 function refresh() {
   if (composing) return;
   const pos = caret(), before = normalize(ta.value.slice(0, pos));
-  const tok = mode === "latin" && !(completed && completed.pos === pos) ? (LATIN.exec(before) || [""])[0] : "";
+  const tok = mode !== "khmer" && !(completed && completed.pos === pos) ? (LATIN.exec(before) || [""])[0] : "";
   let ctx;
   if (tok) {
     ctx = engine.analyze(before.slice(0, before.length - tok.length));
     if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ""; }
     ctx.token = tok;
-    current = engine.romSuggest(tok, ctx);
+    current = mode === "english" ? engine.enSuggest(tok, ctx) : engine.romSuggest(tok, ctx);
   } else {
     if (completed && completed.pos === pos) ctx = { prev: completed.word, partial: "", tokens: engine.analyze(before).tokens };
     else { completed = null; ctx = engine.analyze(before); }
@@ -557,7 +609,7 @@ function render(ctx) {
   const strip = $("strip");
   strip.innerHTML = "";
   const shown = current.slice(0, 6);
-  if (!shown.length) strip.innerHTML = ctx.token ? '<span class="empty">No Khmer word sounds like that yet. Check the spelling or load a bigger data file.</span>' : '<span class="empty">No suggestions for this spelling. Keep typing or load a bigger data file.</span>';
+  if (!shown.length) strip.innerHTML = ctx.token ? '<span class="empty">' + (mode === "english" ? "No Khmer word is glossed with that English word yet." : "No Khmer word sounds like that yet. Check the spelling or load a bigger data file.") + "</span>" : '<span class="empty">No suggestions for this spelling. Keep typing or load a bigger data file.</span>';
   shown.forEach((c, i) => {
     const b = document.createElement("button");
     b.type = "button"; b.setAttribute("role", "option");
@@ -570,9 +622,9 @@ function render(ctx) {
 
   const toks = ctx.tokens || [];
   const segHtml = toks.map(esc).join('<span class="sep">|</span>') + (ctx.partial ? (toks.length ? '<span class="sep">|</span>' : "") + "<b>" + esc(ctx.partial) + "</b>" : "");
-  $("l-seg").textContent = ctx.token ? "Sound key" : "Segmented";
-  $("l-part").textContent = ctx.token ? "Latin word" : "Typing";
-  $("c-seg").innerHTML = ctx.token ? '<span class="mono">' + esc(romKey(ctx.token)) + "</span>" : segHtml || "–";
+  $("l-seg").textContent = ctx.token ? (mode === "english" ? "English key" : "Sound key") : "Segmented";
+  $("l-part").textContent = ctx.token ? (mode === "english" ? "English word" : "Latin word") : "Typing";
+  $("c-seg").innerHTML = ctx.token ? '<span class="mono">' + esc(mode === "english" ? enKey(ctx.token) : romKey(ctx.token)) + "</span>" : segHtml || "–";
   $("c-prev").textContent = ctx.prev === "^" ? "(start of sentence)" : ctx.prev;
   $("c-part").textContent = ctx.token || ctx.partial || "(nothing yet: predicting next word)";
 
@@ -605,7 +657,9 @@ function commitLatin() {
   const pre = normalize(before.slice(0, before.length - m[0].length));
   const ctx = engine.analyze(pre);
   if (ctx.partial) ctx.prev = ctx.partial;
-  const top = engine.romSuggest(m[0], ctx)[0]; if (!top) return false;
+  // English mode converts only a confident match (the word or an inflection of it), never a half-typed word
+  const top = mode === "english" ? engine.enSuggest(m[0], ctx).find((c, i) => i === 0 && c.tier < 1) : engine.romSuggest(m[0], ctx)[0];
+  if (!top) return false;
   ta.value = pre + top.word + after;
   const np = pre.length + top.word.length; ta.setSelectionRange(np, np);
   completed = { pos: np, word: top.word };
@@ -613,7 +667,7 @@ function commitLatin() {
 }
 ta.addEventListener("input", e => {
   typing++; completed = null;
-  if (mode === "latin" && !composing && e.data === " ") commitLatin();
+  if (mode !== "khmer" && !composing && e.data === " ") commitLatin();
   refresh();
 });
 ta.addEventListener("keyup", e => { if (e.key !== "Tab") refresh(); });
@@ -623,13 +677,14 @@ ta.addEventListener("compositionstart", () => (composing = true));
 ta.addEventListener("compositionend", () => { composing = false; completed = null; refresh(); });
 ta.addEventListener("keydown", e => {
   if (composing || !current.length) return;
-  const pending = mode === "latin" && LATIN.test(ta.value.slice(0, caret()));
+  const pending = mode !== "khmer" && LATIN.test(ta.value.slice(0, caret()));
   if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && pending)) { e.preventDefault(); accept(current[0]); }
 });
 
 /* samples and modes */
 const SAMPLES = { khmer: ["ខ្ញុំ ចូលចិត្ត ", "ស្រ", "ប្រ", "តើ អ្នក ", "ខ្ញុំចង់ញ៉ាំប", "ស្រលាញ"],
-                  latin: ["knhom chong nham bay ", "sok sabay te ", "orkun ", "sralanh ", "phnom penh ", "bong tov na "] };
+                  latin: ["knhom chong nham bay ", "sok sabay te ", "orkun ", "sralanh ", "phnom penh ", "bong tov na "],
+                  english: ["water ", "i love cambodia ", "good morning ", "eating rice ", "teacher ", "thank you "] };
 // Latin samples are typed out letter by letter so the conversion is visible.
 function typeLatin(str) {
   const id = ++typing; ta.value = ""; completed = null; ta.focus(); refresh();
@@ -650,7 +705,7 @@ function buildSamples() {
     const b = document.createElement("button");
     b.type = "button"; b.className = "sample"; b.textContent = s.trimEnd(); if (s.endsWith(" ")) { const sp = document.createElement("span"); sp.className = "sp"; b.appendChild(sp); }
     b.addEventListener("click", () => {
-      if (mode === "latin") return typeLatin(s);
+      if (mode !== "khmer") return typeLatin(s);
       typing++; ta.value = s; completed = null; ta.focus(); ta.setSelectionRange(s.length, s.length); refresh();
     });
     box.appendChild(b);
@@ -658,15 +713,16 @@ function buildSamples() {
 }
 function setMode(m) {
   mode = m; typing++; completed = null;
-  $("m-khmer").setAttribute("aria-pressed", m === "khmer"); $("m-latin").setAttribute("aria-pressed", m === "latin");
-  $("kbcard").hidden = m === "latin";
-  $("hint-khmer").hidden = m === "latin"; $("legend").hidden = m === "latin"; $("hint-latin").hidden = m === "khmer";
-  ta.placeholder = m === "latin" ? "Type Khmer in Latin letters, e.g. knhom chong nham bay" : "វាយអក្សរខ្មែរនៅទីនេះ…";
-  ta.value = m === "latin" ? "" : "ខ្ញុំ ចូលចិត្ត ";
+  $("m-khmer").setAttribute("aria-pressed", m === "khmer"); $("m-latin").setAttribute("aria-pressed", m === "latin"); $("m-english").setAttribute("aria-pressed", m === "english");
+  $("kbcard").hidden = m !== "khmer";
+  $("hint-khmer").hidden = m !== "khmer"; $("legend").hidden = m !== "khmer"; $("hint-latin").hidden = m !== "latin"; $("hint-english").hidden = m !== "english";
+  ta.placeholder = m === "latin" ? "Type Khmer in Latin letters, e.g. knhom chong nham bay" : m === "english" ? "Type English words, e.g. water, teacher, good morning" : "វាយអក្សរខ្មែរនៅទីនេះ…";
+  ta.value = m === "khmer" ? "ខ្ញុំ ចូលចិត្ត " : "";
   buildSamples(); refresh();
 }
 $("m-khmer").addEventListener("click", () => setMode("khmer"));
 $("m-latin").addEventListener("click", () => setMode("latin"));
+$("m-english").addEventListener("click", () => setMode("english"));
 
 /* reference tables, generated from the same data the engine uses */
 (function () {

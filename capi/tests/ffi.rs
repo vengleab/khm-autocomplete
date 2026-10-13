@@ -28,6 +28,23 @@ fn open() -> *mut KhEngine {
 }
 
 #[test]
+fn layout_maps_physical_keys() {
+    unsafe {
+        let k = |kind, code, shift, altgr| {
+            let p = kh_layout_map(kind, code, shift, altgr);
+            (!p.is_null()).then(|| take(p))
+        };
+        assert_eq!(k(KH_KEYCODE_MAC, 40, 0, 0).as_deref(), Some("ក")); // K
+        assert_eq!(k(KH_KEYCODE_MAC, 40, 1, 0).as_deref(), Some("គ")); // Shift+K
+        assert_eq!(k(KH_KEYCODE_WINDOWS_SCAN, 0x30, 0, 0).as_deref(), Some("ប")); // B
+        assert_eq!(k(KH_KEYCODE_WINDOWS_SCAN, 0x05, 1, 0).as_deref(), Some("៛")); // Shift+4
+        assert_eq!(k(KH_KEYCODE_MAC, 49, 0, 0), None); // Space is not ours
+        assert_eq!(k(99, 40, 0, 0), None);
+        assert_eq!(k(KH_KEYCODE_MAC, 70000, 0, 0), None);
+    }
+}
+
+#[test]
 fn version_and_constants() {
     assert_eq!(kh_abi_version(), KH_ABI_VERSION);
 }
@@ -85,6 +102,68 @@ fn key_action_space_converts_the_latin_word() {
         )))
         .unwrap();
         assert_eq!(v["action"], "pass");
+        kh_engine_free(e);
+    }
+}
+
+fn open_en() -> *mut KhEngine {
+    let r = root();
+    let (d, l, e) = (
+        c(r.join("data/data.json").to_str().unwrap()),
+        c(r.join("data/lexicon.json").to_str().unwrap()),
+        c(r.join("data/english.json").to_str().unwrap()),
+    );
+    let e = unsafe { kh_engine_open_with_english(d.as_ptr(), l.as_ptr(), e.as_ptr()) };
+    assert!(!e.is_null(), "{:?}", err());
+    e
+}
+
+#[test]
+fn english_mode_suggests_khmer_for_english_words() {
+    unsafe {
+        let e = open_en();
+        let v: Value =
+            serde_json::from_str(&take(kh_suggest(e, c("water").as_ptr(), KH_MODE_ENGLISH, std::ptr::null()))).unwrap();
+        assert_eq!(v[0]["word"], "ទឹក");
+        assert_eq!(v[0]["roman"], "water");
+        assert_eq!(v[0]["replace_len_utf16"], 5);
+        // Space converts a confident match, and swallows the space
+        let a: Value = serde_json::from_str(&take(kh_key_action(
+            e,
+            c("water").as_ptr(),
+            KH_MODE_ENGLISH,
+            KH_KEY_SPACE,
+            std::ptr::null(),
+        )))
+        .unwrap();
+        assert_eq!(a["action"], "insert");
+        assert_eq!(a["candidate"]["word"], "ទឹក");
+        // ...but never a half-typed word: "wat" only prefix-matches, so the space is left alone
+        let a: Value = serde_json::from_str(&take(kh_key_action(
+            e,
+            c("wat").as_ptr(),
+            KH_MODE_ENGLISH,
+            KH_KEY_SPACE,
+            std::ptr::null(),
+        )))
+        .unwrap();
+        assert_eq!(a["action"], "pass");
+        // Tab takes the top candidate even then
+        let a: Value = serde_json::from_str(&take(kh_key_action(
+            e,
+            c("wat").as_ptr(),
+            KH_MODE_ENGLISH,
+            KH_KEY_TAB,
+            std::ptr::null(),
+        )))
+        .unwrap();
+        assert_eq!(a["candidate"]["word"], "ទឹក");
+        kh_engine_free(e);
+        // an engine opened without a glossary has no English candidates (and does not fail)
+        let e = open();
+        let v: Value =
+            serde_json::from_str(&take(kh_suggest(e, c("water").as_ptr(), KH_MODE_ENGLISH, std::ptr::null()))).unwrap();
+        assert!(v.as_array().unwrap().is_empty());
         kh_engine_free(e);
     }
 }

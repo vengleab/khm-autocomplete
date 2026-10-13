@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "khcore model manifest",
+  "type": "object",
+  "required": ["name", "version", "kind", "file", "size_bytes", "tokenizer", "context_tokens"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "kind": { "enum": ["onnx-causal-lm"] },
+    "file": { "type": "string", "minLength": 1 },
+    "size_bytes": { "type": "integer", "minimum": 1 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tokenizer": { "type": "string", "minLength": 1 },
+    "context_tokens": { "type": "integer", "minimum": 1, "maximum": 512 },
+    "rerank_top_k": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 },
+    "blend_alpha": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+    "license": { "type": "string" }
+  }
+}

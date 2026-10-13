@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "capi", "wasm"]
+members = ["layout", "core", "capi", "wasm", "windows/ipc", "windows/engine", "windows/tsf"]
 resolver = "2"
 
 [profile.release]

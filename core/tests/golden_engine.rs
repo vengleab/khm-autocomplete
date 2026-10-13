@@ -86,13 +86,18 @@ fn run(name: &str, e: &Engine) {
         f.check(same, || format!("compose({t:?}) = {got:?}, JS {}", c["out"]));
     }
 
-    for c in g["flows"].as_array().unwrap() {
-        let text = s(&c["text"]);
-        let mode = if s(&c["mode"]) == "latin" { Mode::Latin } else { Mode::Khmer };
-        let completed = c["completed"].as_str();
-        let got = e.suggest(text, mode, completed);
-        let want = c["current"].as_array().unwrap();
-        let same = got.len() == want.len()
+    let mut flows = |list: &Value| {
+        for c in list.as_array().unwrap() {
+            let text = s(&c["text"]);
+            let mode = match s(&c["mode"]) {
+                "latin" => Mode::Latin,
+                "english" => Mode::English,
+                _ => Mode::Khmer,
+            };
+            let completed = c["completed"].as_str();
+            let got = e.suggest(text, mode, completed);
+            let want = c["current"].as_array().unwrap();
+            let same = got.len() == want.len()
             && got.iter().zip(want).all(|(a, b)| {
                 a.word == s(&b["word"]) && kind(a.kind) == s(&b["kind"]) && a.append == b["append"].as_bool().unwrap() && a.replace == s(&b["replace"])
                     && a.roman.as_deref() == b["rom"].as_str() && a.why.as_deref() == b["why"].as_str()
@@ -100,24 +105,54 @@ fn run(name: &str, e: &Engine) {
                     // un-normalized input: the replacement length must cover the raw tail
                     && (!a.replace.is_empty() == (a.replace_len_utf16 > 0))
             });
+            f.check(same, || {
+                format!(
+                    "suggest {text:?} {mode:?} completed={completed:?}: got {:?}\n   JS {}",
+                    got.iter().map(|x| (&x.word, kind(x.kind), &x.replace)).collect::<Vec<_>>(),
+                    c["current"]
+                )
+            });
+            for (kname, key) in [("space", Key::Space), ("enter", Key::Enter), ("tab", Key::Tab)] {
+                let act = e.key_action(text, mode, key, completed);
+                let want = &c["keys"][kname];
+                let ok = match (&act, want) {
+                    (KeyAction::PassThrough, Value::Null) => true,
+                    (KeyAction::Insert(x), w) if !w.is_null() => {
+                        x.word == s(&w["word"]) && x.replace == s(&w["replace"])
+                    }
+                    _ => false,
+                };
+                f.check(ok, || {
+                    format!("key {kname} {text:?} {mode:?} completed={completed:?}: got {act:?}, JS {want}")
+                });
+            }
+            let _ = latin_suffix(text);
+        }
+    };
+    flows(&g["flows"]);
+    flows(&g["flowsEn"]);
+
+    for c in g["english"].as_array().unwrap() {
+        let token = s(&c["token"]);
+        let got = e.english_candidates(token, s(&c["prev"]));
+        let want = c["out"].as_array().unwrap();
+        let same = got.len() == want.len()
+            && got.iter().zip(want).all(|(a, b)| {
+                a.word == s(&b["word"])
+                    && kind(a.kind) == s(&b["kind"])
+                    && a.tier.unwrap() == b["tier"].as_f64().unwrap()
+                    && a.roman.as_deref() == b["rom"].as_str()
+                    && a.why.is_none()
+                    && close(a.p.unwrap(), b["p"].as_f64().unwrap())
+            });
         f.check(same, || {
             format!(
-                "suggest {text:?} {mode:?} completed={completed:?}: got {:?}\n   JS {}",
-                got.iter().map(|x| (&x.word, kind(x.kind), &x.replace)).collect::<Vec<_>>(),
-                c["current"]
+                "english {token:?} prev={}: got {:?}\n   JS {}",
+                c["prev"],
+                got.iter().map(|x| (&x.word, kind(x.kind), x.tier, &x.roman)).collect::<Vec<_>>(),
+                c["out"]
             )
         });
-        for (kname, key) in [("space", Key::Space), ("enter", Key::Enter), ("tab", Key::Tab)] {
-            let act = e.key_action(text, mode, key, completed);
-            let want = &c["keys"][kname];
-            let ok = match (&act, want) {
-                (KeyAction::PassThrough, Value::Null) => true,
-                (KeyAction::Insert(x), w) if !w.is_null() => x.word == s(&w["word"]) && x.replace == s(&w["replace"]),
-                _ => false,
-            };
-            f.check(ok, || format!("key {kname} {text:?} {mode:?} completed={completed:?}: got {act:?}, JS {want}"));
-        }
-        let _ = latin_suffix(text);
     }
     f.finish(&format!("engine {name}"));
 }

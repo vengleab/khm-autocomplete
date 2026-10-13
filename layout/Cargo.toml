@@ -1,0 +1,8 @@
+[package]
+name = "khlayout"
+version = "0.1.0"
+edition = "2021"
+description = "Khmer (NiDA) keyboard layout table and key lookup. No dependencies, so the Windows TSF DLL can use it without the language data."
+license = "MIT OR Apache-2.0"
+
+[dependencies]

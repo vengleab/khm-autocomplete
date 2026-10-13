@@ -4,18 +4,26 @@
 //! Where this code and the JS disagree, the JS is right (see `tests/golden`).
 //! No platform code, no network, no logging of typed text.
 
+pub mod api_json;
 pub mod cluster;
 pub mod compose;
 pub mod engine;
+pub mod english;
 pub mod fdlibm;
 pub mod key;
+/// The Khmer (NiDA) keyboard layout; lives in its own dependency-free crate (`khlayout`).
+pub use khlayout as layout;
+pub mod manifest;
 pub mod model;
+#[cfg(feature = "neural")]
+pub mod neural;
 pub mod norm;
 pub mod romanize;
 pub mod romkey;
 pub mod scorer;
 pub mod suggest;
 pub mod tables;
+pub mod userdict;
 
 pub use engine::{Candidate, Engine, Kind, Mode};
 pub use key::{Key, KeyAction};
