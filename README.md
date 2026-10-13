@@ -1,8 +1,9 @@
 # Khmer autocomplete demo
 
-Two input modes in one page:
+Three input modes in one page:
 - Khmer script: word completion, next-word prediction, typo fixes, on-screen Khmer keyboard.
 - Latin input (Khmerlish): type Khmer in Latin letters ("knhom chong nham bay"), press Space to convert each word to Khmer script.
+- English: type an English word ("water", "eating"), press Space to turn it into Khmer. Uses data/english.json, a small hand-written glossary.
 
 Files
 - web/index.html    standalone demo (open in a browser; needs internet only for the Khmer web font)

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v4 template for a per-machine installer (UNTESTED: written on Linux, WiX was not available).
+  Build:  wix build windows/installer/khmer.wxs -d DistDir=windows/dist -o KhmerAutocomplete.msi
+  Why MSI and not MSIX: a TSF text service is an in-process COM server registered in HKLM and loaded into other apps.
+  MSIX packages cannot write machine-wide COM registration or be injected into other processes, so MSIX does not fit.
+  Replace UpgradeCode and the Manufacturer before shipping; sign the MSI, the DLLs and khengine.exe (see RELEASE notes below).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Khmer Autocomplete" Manufacturer="Khmer Autocomplete" Version="0.1.0"
+           UpgradeCode="6E3B2B58-0F3E-4C61-9E7A-2C9C0B1D4A77" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Khmer Autocomplete is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="KhmerAutocomplete" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER32" Name="KhmerAutocomplete" />
+    </StandardDirectory>
+
+    <!-- 64-bit text service, the engine and its data -->
+    <Component Id="Tip64" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="Tip64Dll" Source="$(DistDir)\x64\khtsf.dll" />
+    </Component>
+    <Component Id="Engine" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="EngineExe" Source="$(DistDir)\x64\khengine.exe" />
+      <File Id="EngineData" Source="$(DistDir)\x64\khdata.bin" />
+      <!-- start the engine at every logon; the DLL also starts it on demand -->
+      <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="KhmerAutocompleteEngine"
+                     Value="&quot;[INSTALLFOLDER]khengine.exe&quot;" Type="string" />
+    </Component>
+    <!-- 32-bit text service for 32-bit apps (it finds khengine.exe next to itself, so the engine and data are copied here too) -->
+    <Component Id="Tip32" Directory="INSTALLFOLDER32" Bitness="always32">
+      <File Id="Tip32Dll" Source="$(DistDir)\x86\khtsf.dll" />
+      <File Id="Engine32Exe" Source="$(DistDir)\x64\khengine.exe" />
+      <File Id="Engine32Data" Source="$(DistDir)\x64\khdata.bin" />
+    </Component>
+
+    <Feature Id="Main" Title="Khmer Autocomplete" Level="1">
+      <ComponentRef Id="Tip64" />
+      <ComponentRef Id="Engine" />
+      <ComponentRef Id="Tip32" />
+    </Feature>
+
+    <!-- Registration needs the TSF profile API, so the DLL registers itself (DllRegisterServer) -->
+    <CustomAction Id="Register64" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="check"
+                  ExeCommand="&quot;[System64Folder]regsvr32.exe&quot; /s &quot;[INSTALLFOLDER]khtsf.dll&quot;" />
+    <CustomAction Id="Register32" Directory="INSTALLFOLDER32" Execute="deferred" Impersonate="no" Return="check"
+                  ExeCommand="&quot;[SystemFolder]regsvr32.exe&quot; /s &quot;[INSTALLFOLDER32]khtsf.dll&quot;" />
+    <CustomAction Id="Unregister64" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="ignore"
+                  ExeCommand="&quot;[System64Folder]regsvr32.exe&quot; /u /s &quot;[INSTALLFOLDER]khtsf.dll&quot;" />
+    <CustomAction Id="Unregister32" Directory="INSTALLFOLDER32" Execute="deferred" Impersonate="no" Return="ignore"
+                  ExeCommand="&quot;[SystemFolder]regsvr32.exe&quot; /u /s &quot;[INSTALLFOLDER32]khtsf.dll&quot;" />
+    <CustomAction Id="StopEngine" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="ignore"
+                  ExeCommand="&quot;[System64Folder]taskkill.exe&quot; /F /IM khengine.exe" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopEngine" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; OR UPGRADINGPRODUCTCODE" />
+      <Custom Action="Unregister64" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="Unregister32" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="Register64" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="Register32" After="Register64" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
+
+<!--
+  Signing and release notes
+  - Authenticode-sign khtsf.dll (all architectures), khengine.exe and the MSI with signtool and an RFC 3161 timestamp:
+      signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a file
+    An EV certificate gives immediate SmartScreen reputation; an OV certificate builds it over time.
+  - Some processes only load Microsoft-signed or WHQL-signed modules (protected processes, some hardened browsers' child processes);
+    this text service will not load there, whatever it is signed with. That is a platform rule, not a bug.
+  - Updates: a running text service DLL is locked inside other apps. An MSI upgrade replaces it after a reboot or after
+    the apps are restarted (Windows Installer schedules the replacement); tell users so, and keep the pipe protocol
+    version (khipc::PROTOCOL_VERSION) compatible between releases: the DLL refuses an engine of another version and
+    falls back to pass-through instead of misbehaving.
+-->

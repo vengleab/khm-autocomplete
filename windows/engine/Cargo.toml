@@ -1,0 +1,22 @@
+[package]
+name = "khengine"
+version = "0.1.0"
+edition = "2021"
+description = "khengine.exe: holds the language data and answers the Windows text service over a per-user named pipe"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "khengine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "khengine"
+path = "src/main.rs"
+
+[dependencies]
+khcore = { path = "../../core" }
+khipc = { path = "../ipc" }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"]
