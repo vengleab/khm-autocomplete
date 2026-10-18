@@ -6,7 +6,8 @@
 //! - no panic ever crosses a COM boundary (every entry point is wrapped in `catch_unwind`);
 //! - no typed text is logged or stored.
 //!
-//! The key layout for Khmer typing is linked in (`khlayout`, tiny), so typing Khmer works even without the engine.
+//! Keys are never remapped (no layout table here): the engine reads what was typed, so without the engine the DLL
+//! only passes keys through.
 //!
 //! Everything except `logic` is Windows only.
 

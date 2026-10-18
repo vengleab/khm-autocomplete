@@ -14,6 +14,7 @@ fn mode_of(m: u8) -> Result<Mode, JsError> {
         0 => Ok(Mode::Khmer),
         1 => Ok(Mode::Latin),
         2 => Ok(Mode::English),
+        3 => Ok(Mode::Auto),
         _ => Err(err(format!("unknown mode {m}"))),
     }
 }
@@ -28,6 +29,11 @@ struct JsCand<'a> {
     rom: Option<&'a str>,
     why: Option<&'a str>,
     tier: Option<f64>,
+    /// Auto mode: the text this candidate replaces and where it came from (absent for the other modes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replace: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'a str>,
 }
 
 fn js_cands(c: &[Cand]) -> String {
@@ -41,6 +47,8 @@ fn js_cands(c: &[Cand]) -> String {
             rom: x.roman.as_deref(),
             why: x.why.as_deref(),
             tier: x.tier,
+            replace: x.span.as_deref(),
+            source: x.source,
         })
         .collect();
     serde_json::to_string(&v).unwrap()
@@ -111,6 +119,13 @@ impl WasmEngine {
         js_cands(&self.e.english_candidates(token, prev))
     }
 
+    /// Auto candidates for a pending run of ASCII after `prev`: Khmerlish, English and NiDA readings merged;
+    /// each has `replace` (its own span) and `source`.
+    #[wasm_bindgen(js_name = autoCandidates)]
+    pub fn auto_candidates(&self, run: &str, prev: &str) -> String {
+        js_cands(&self.e.auto_candidates(run, prev))
+    }
+
     /// Rule-made spellings for a Latin token (`compose`), `[{word, why, score}]`.
     pub fn compose(&self, token: &str) -> String {
         let v: Vec<_> = khcore::compose::compose(token, &self.e.model().prior)
@@ -120,7 +135,7 @@ impl WasmEngine {
         serde_json::Value::Array(v).to_string()
     }
 
-    /// The public API: candidates for the text before the caret. `mode`: 0 Khmer, 1 Latin, 2 English.
+    /// The public API: candidates for the text before the caret. `mode`: 0 Khmer, 1 Latin, 2 English, 3 Auto.
     pub fn suggest(&self, text_before_caret: &str, mode: u8, just_accepted: Option<String>) -> Result<String, JsError> {
         let c = self.e.suggest(text_before_caret, mode_of(mode)?, just_accepted.as_deref());
         Ok(khcore::api_json::candidates(&c))
@@ -154,6 +169,12 @@ impl WasmEngine {
 #[wasm_bindgen]
 pub fn normalize(text: &str) -> String {
     khcore::norm::normalize(text)
+}
+
+/// What a run of ASCII keys types on the Khmer (NiDA) layout, or `undefined` when a key has no reading.
+#[wasm_bindgen(js_name = nidaRead)]
+pub fn nida_read(run: &str) -> Option<String> {
+    khcore::suggest::nida_read(run)
 }
 
 /// Latin sound key.

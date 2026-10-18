@@ -34,7 +34,18 @@ fn measure(
         ("latin: nothing matches (compose)", vec![]),
         ("english: exact / inflected / prefix", vec![]),
         ("english: typo (tier 2 scan)", vec![]),
+        ("auto: khmerlish typo (3 readings)", vec![]),
+        ("auto: english word (3 readings)", vec![]),
+        ("auto: keys of a word (NiDA)", vec![]),
+        ("auto: nothing matches (chips)", vec![]),
     ];
+    // the key that types each Khmer character on the layout, to type words as NiDA keys
+    let mut inv = std::collections::HashMap::new();
+    for c in '!'..='~' {
+        if let Some(k) = khcore::layout::from_ascii(c).filter(|k| k.chars().count() == 1) {
+            inv.entry(k.chars().next().unwrap()).or_insert(c);
+        }
+    }
     for _ in 0..600 {
         let ctx = format!("{} {} ", w(&mut r), w(&mut r));
         let word = w(&mut r).clone();
@@ -54,8 +65,14 @@ fn measure(
             let i = r.below(m.len());
             m[i] = b'z';
         }
-        groups[5].1.push((format!("{ctx}{}", String::from_utf8(m).unwrap()), Mode::Latin));
+        groups[5].1.push((format!("{ctx}{}", String::from_utf8(m.clone()).unwrap()), Mode::Latin));
         groups[6].1.push((format!("{ctx}qzxqzx{}", r.below(99)), Mode::Latin));
+        groups[9].1.push((format!("{ctx}{}", String::from_utf8(m).unwrap()), Mode::Auto));
+        let keys: Option<String> = word.chars().map(|ch| inv.get(&ch).copied()).collect();
+        if let Some(k) = keys {
+            groups[11].1.push((format!("{ctx}{k}"), Mode::Auto));
+        }
+        groups[12].1.push((format!("{ctx}qzxqzx{}", r.below(99)), Mode::Auto));
         // English tokens come from the synthetic glossary (the first gloss of a glossed word)
         let gw = &words[3 * r.below(top / 3)];
         if let Some(g) = glosses.get(gw) {
@@ -68,6 +85,7 @@ fn measure(
             let i = r.below(m.len());
             m[i] = b'q';
             groups[8].1.push((format!("{ctx}{}", String::from_utf8(m).unwrap()), Mode::English));
+            groups[10].1.push((format!("{ctx}{g}ing"), Mode::Auto));
         }
     }
     println!("{label}: budget {budget:?} per keystroke");

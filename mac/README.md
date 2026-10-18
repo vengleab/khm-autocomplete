@@ -10,7 +10,7 @@ Sources/KhmerAutocomplete/  the input method
     main.swift                IMKServer + candidate window + run loop
     InputController.swift     IMKInputController: keys, text before the caret, replacement, candidates, menu
     Runtime.swift             the engine (khdata.bin from the bundle) and the candidate panel, shared
-    Settings.swift            preferences (mode, apps where suggestions are off); never typed text
+    Settings.swift            preferences (Khmer / English state, apps where suggestions are off); never typed text
     SettingsWindow.swift      the preferences window
 Tests/KhBridgeTests/        XCTest: the bridge against the repo's seed data
 Resources/Info.plist        template (@BUNDLE_ID@, @VERSION@ are filled in by build.sh)
@@ -27,13 +27,21 @@ python3 mac/check-plist.py                               # runs anywhere
 Change `BUNDLE_ID` (default `org.khmerautocomplete.inputmethod.KhmerAutocomplete`) to your own reverse-DNS name before shipping.
 
 ## Behavior
-- **Khmer script:** the keys type Khmer (Khmer NiDA layout, from the engine: `kh_layout_map`); Option is the AltGr level.
-  Space is a normal space (NiDA types a zero-width space; the engine needs a real space to know a word is finished).
-  Suggestions appear in the candidate window; Tab takes the first.
-- **Latin (Khmerlish):** type `knhom`, press Space and it becomes `ខ្ញុំ`; Tab or Enter take the first candidate.
-- **English → Khmer:** type `water`, press Space and it becomes `ទឹក`. Space converts only a confident match (the word or an
-  inflection of it); Tab/Enter also take a prefix match.
-- Mode: input menu, settings window, or Control + Option + Space.
+Two states, like any keyboard: **Khmer** and **English**. Control + Option + Space (or the input menu, or the settings
+window) toggles them. Stored modes from earlier builds (Khmer script, Latin, English → Khmer) all become Khmer.
+- **English:** pure pass-through. The engine is not called, no candidates are shown.
+- **Khmer** (engine mode `.auto`): **no key is remapped**. Letters, digits and punctuation land in the document as typed (the
+  pending *run*) and the engine works out what they were: Khmerlish (`knhom` → `ខ្ញុំ`), an English word (`water` → `ទឹក`),
+  keys of the Khmer (NiDA) layout typed on a US keyboard (`xjJuM` → `ខ្ញុំ`), or Khmer script from the OS keyboard (next-word
+  suggestions, completions, typo fixes, as before). Space / Enter / Tab always go to the engine:
+  - **Space** converts only a confident top candidate (exact Khmerlish, exact English, a NiDA reading made of known words);
+    otherwise the space is an ordinary space and the text stays as typed. Prefix and typo matches are shown, not applied.
+  - **Tab** takes the first candidate (a prefix or typo match too). **Enter** takes a real candidate of a pending run, otherwise
+    it is a newline.
+  - If nothing matches, the candidate window ends in two choices: the keys as Khmer (NiDA reading) or as typed (English).
+  - Each candidate carries its own `replace_len_utf16` (Khmerlish and English replace the trailing letters, NiDA the whole run),
+    so `hello,water` + Space gives `hello,ទឹក`.
+  - NiDA is no longer live per key: the Khmer letters appear on Space / Tab or a click, not as each key goes down.
 - Off in password fields (`IsSecureEventInputEnabled`), in apps listed in settings, and when `khdata.bin` is missing.
 
 ## What has NOT been verified (written on Linux, nothing here was compiled or run on macOS)
@@ -46,6 +54,8 @@ Change `BUNDLE_ID` (default `org.khmerautocomplete.inputmethod.KhmerAutocomplete
   3. `attributedSubstring(from:)` / `selectedRange()` in real apps (Safari, Chrome, TextEdit, Terminal, VS Code):
      some clients (Electron, terminals) return nothing or stale ranges, which makes the input method pass keys through;
   4. the `refreshSoon()` timing: after a key the app handles itself, candidates are recomputed on the next run loop turn;
-  5. that Control + Option + Space does not clash with an existing shortcut.
+  5. that Control + Option + Space does not clash with an existing shortcut;
+  6. in the Khmer state, that ordinary letters really reach the document unchanged (no remapping any more) and that Space,
+     Enter and Tab (always sent to the engine) are fast enough not to be felt. The `layoutMap` call is no longer used by the app.
 - The menu item action receives a dictionary in some macOS versions; `selectMode` accepts either that or an `NSMenuItem`.
 - No icon yet: add `tsInputMethodIconFileKey` / `tsInputModeMenuIconFileKey` with a template image.

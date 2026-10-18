@@ -27,6 +27,12 @@ pub const KH_MODE_LATIN: i32 = 1;
 /// Input mode: English words, Khmer suggestions (needs an engine opened with an English glossary).
 pub const KH_MODE_ENGLISH: i32 = 2;
 
+/// Input mode: the one Khmer state. The keys are not remapped; the engine reads the pending run of ASCII as Khmerlish,
+/// English, or keys of the Khmer (NiDA) layout, and Khmer script (from the OS keyboard) as usual. Candidates then carry
+/// a `source` ("khmerlish" | "english" | "nida" | "raw"), and each has its own `replace` / `replace_len_utf16`.
+/// Needs an engine opened with an English glossary for the English reading. Added without an ABI bump (new value only).
+pub const KH_MODE_AUTO: i32 = 3;
+
 /// Key: Space.
 pub const KH_KEY_SPACE: i32 = 0;
 /// Key: Enter / Return.
@@ -91,6 +97,7 @@ fn mode_of(m: i32) -> Result<Mode, String> {
         KH_MODE_KHMER => Ok(Mode::Khmer),
         KH_MODE_LATIN => Ok(Mode::Latin),
         KH_MODE_ENGLISH => Ok(Mode::English),
+        KH_MODE_AUTO => Ok(Mode::Auto),
         _ => Err(format!("unknown mode {m}")),
     }
 }
@@ -159,8 +166,9 @@ pub unsafe extern "C" fn kh_engine_free(engine: *mut KhEngine) {
 }
 
 /// Candidates for the text before the caret, as a JSON array (best first, at most 8):
-/// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`.
-/// In Latin and English modes `roman` is the Latin spelling / the matched English gloss.
+/// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`; in Auto mode
+/// each candidate also has `"source"`, and `kind` can be `"layout"` (the keys read as Khmer) or `"raw"` (as typed).
+/// In Latin, English and Auto modes `roman` is the Latin spelling / the matched English gloss / a source label.
 /// `mode` is `KH_MODE_*`. `just_accepted` is the word the user just accepted, or NULL (see Engine::suggest).
 #[no_mangle]
 pub unsafe extern "C" fn kh_suggest(
@@ -203,7 +211,7 @@ pub unsafe extern "C" fn kh_key_action(
     })
 }
 
-/// What a physical key types in Khmer-script mode (Khmer NiDA layout), as a UTF-8 string, or NULL when the key
+/// What a physical key types on the Khmer (NiDA) layout, as a UTF-8 string, or NULL when the key
 /// is not part of the layout (not an error: let the key through). `kind` is `KH_KEYCODE_*`; `shift` and `altgr`
 /// (right Alt on Windows, Option on macOS) are 0 or 1. Space is not part of the layout; see core/src/layout.rs.
 #[no_mangle]

@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initSync, WasmEngine, normalize, romKey, romanize } from '../web/pkg/khcore_wasm.js';
+import { initSync, WasmEngine, normalize, romKey, romanize, nidaRead } from '../web/pkg/khcore_wasm.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -48,13 +48,24 @@ function engine(name, data, lex, en) {
     check(got.length === c.out.length && got.every((a, i) => a.word === c.out[i].word && a.why === c.out[i].why && num(a.score, c.out[i].score)), () => `${name} compose ${c.t}`);
   }
   for (const c of g.english) check(cands(JSON.parse(e.englishCandidates(c.token, c.prev)), c.out, true), () => `${name} english ${JSON.stringify(c.token)} prev=${c.prev}`);
+  // Auto: the NiDA reading of a run, and the merged candidates with their own spans and sources
+  for (const c of g.nida) check(nulls(nidaRead(c.run)) === c.reading, () => `${name} nidaRead ${JSON.stringify(c.run)}`);
+  for (const c of g.auto) {
+    const got = JSON.parse(e.autoCandidates(c.run, c.prev));
+    const ok = got.length === c.out.length && got.every((a, i) => {
+      const b = c.out[i];
+      return a.word === b.word && a.kind === b.kind && a.append === b.append && a.tier === b.tier && nulls(a.rom) === b.rom && nulls(a.why) === b.why &&
+        a.replace === b.replace && nulls(a.source) === b.source && (b.p === null ? a.p === null : num(a.p, b.p));
+    });
+    check(ok, () => `${name} auto ${JSON.stringify(c.run)} prev=${c.prev}`);
+  }
   const KEY = { space: 0, enter: 1, tab: 2 };
-  for (const f of [...g.flows, ...g.flowsEn]) {
-    const mode = f.mode === 'latin' ? 1 : f.mode === 'english' ? 2 : 0;
+  for (const f of [...g.flows, ...g.flowsEn, ...g.flowsAuto]) {
+    const mode = f.mode === 'latin' ? 1 : f.mode === 'english' ? 2 : f.mode === 'auto' ? 3 : 0;
     const got = JSON.parse(e.suggest(f.text, mode, f.completed ?? undefined));
     const ok = got.length === f.current.length && got.every((a, i) => {
       const b = f.current[i];
-      return a.word === b.word && a.kind === b.kind && a.append === b.append && a.replace === b.replace && nulls(a.roman) === b.rom && nulls(a.why) === b.why &&
+      return a.word === b.word && a.kind === b.kind && a.append === b.append && a.replace === b.replace && nulls(a.roman) === b.rom && nulls(a.why) === b.why && nulls(a.source) === (b.source ?? null) &&
         (b.p === null ? a.prob === null : Math.fround(a.prob) === Math.fround(b.p));
     });
     check(ok, () => `${name} suggest ${JSON.stringify(f.text)} ${f.mode} completed=${f.completed}`);

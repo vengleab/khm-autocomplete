@@ -92,6 +92,7 @@ fn run(name: &str, e: &Engine) {
             let mode = match s(&c["mode"]) {
                 "latin" => Mode::Latin,
                 "english" => Mode::English,
+                "auto" => Mode::Auto,
                 _ => Mode::Khmer,
             };
             let completed = c["completed"].as_str();
@@ -101,6 +102,7 @@ fn run(name: &str, e: &Engine) {
             && got.iter().zip(want).all(|(a, b)| {
                 a.word == s(&b["word"]) && kind(a.kind) == s(&b["kind"]) && a.append == b["append"].as_bool().unwrap() && a.replace == s(&b["replace"])
                     && a.roman.as_deref() == b["rom"].as_str() && a.why.as_deref() == b["why"].as_str()
+                    && a.source == b["source"].as_str()
                     && match (a.prob, b["p"].as_f64()) { (Some(x), Some(y)) => x == y as f32, (None, None) => true, _ => false }
                     // un-normalized input: the replacement length must cover the raw tail
                     && (!a.replace.is_empty() == (a.replace_len_utf16 > 0))
@@ -131,6 +133,47 @@ fn run(name: &str, e: &Engine) {
     };
     flows(&g["flows"]);
     flows(&g["flowsEn"]);
+    flows(&g["flowsAuto"]);
+
+    // Auto: what the NiDA layout makes of a run of keys
+    for c in g["nida"].as_array().unwrap() {
+        let run = s(&c["run"]);
+        let got = khcore::suggest::nida_read(run);
+        f.check(got.as_deref() == c["reading"].as_str(), || {
+            format!("nida_read({run:?}) = {got:?}, JS {}", c["reading"])
+        });
+    }
+
+    // Auto: the merged candidates for a run, each with its own span and source
+    for c in g["auto"].as_array().unwrap() {
+        let run = s(&c["run"]);
+        let got = e.auto_candidates(run, s(&c["prev"]));
+        let want = c["out"].as_array().unwrap();
+        let same = got.len() == want.len()
+            && got.iter().zip(want).all(|(a, b)| {
+                a.word == s(&b["word"])
+                    && kind(a.kind) == s(&b["kind"])
+                    && a.append == b["append"].as_bool().unwrap()
+                    && a.tier.unwrap() == b["tier"].as_f64().unwrap()
+                    && a.roman.as_deref() == b["rom"].as_str()
+                    && a.why.as_deref() == b["why"].as_str()
+                    && a.span.as_deref() == b["replace"].as_str()
+                    && a.source == b["source"].as_str()
+                    && match (a.p, b["p"].as_f64()) {
+                        (Some(x), Some(y)) => close(x, y),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            });
+        f.check(same, || {
+            format!(
+                "auto {run:?} prev={}: got {:?}\n   JS {}",
+                c["prev"],
+                got.iter().map(|x| (&x.word, kind(x.kind), x.tier, &x.span, x.source)).collect::<Vec<_>>(),
+                c["out"]
+            )
+        });
+    }
 
     for c in g["english"].as_array().unwrap() {
         let token = s(&c["token"]);

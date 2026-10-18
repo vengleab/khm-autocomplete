@@ -15,6 +15,10 @@ pub enum Kind {
     Exact,
     Prefix,
     Rule,
+    /// Auto mode: the typed keys read as Khmer by the NiDA layout (offered when nothing else matched)
+    Layout,
+    /// Auto mode: the typed keys kept as they are, English (offered when nothing else matched)
+    Raw,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -25,6 +29,8 @@ pub enum Mode {
     Latin,
     /// type English words, get Khmer suggestions
     English,
+    /// the one Khmer state: reads the typed run as Khmerlish, English, NiDA layout keys or Khmer script
+    Auto,
 }
 
 /// What a shell needs to show and insert one suggestion.
@@ -42,6 +48,9 @@ pub struct Candidate {
     /// Latin candidates: how the word is spelled in Latin ("by rule" for guesses)
     pub roman: Option<String>,
     pub why: Option<String>,
+    /// Auto mode: which reading produced the candidate ("khmerlish", "english", "nida", "raw")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<&'static str>,
 }
 
 pub const LIMIT: usize = 8;
@@ -59,6 +68,13 @@ pub fn latin_suffix(s: &str) -> &str {
         .take_while(|(_, c)| c.is_ascii_alphabetic() || *c == '\'' || *c == '-')
         .last()
         .map_or(s.len(), |(i, _)| i);
+    &s[start..]
+}
+
+/// The trailing run of ASCII graphic characters: the pending run in Auto mode (broader than `latin_suffix`,
+/// since the NiDA layout also uses digits and punctuation keys).
+pub fn ascii_run(s: &str) -> &str {
+    let start = s.char_indices().rev().take_while(|(_, c)| c.is_ascii_graphic()).last().map_or(s.len(), |(i, _)| i);
     &s[start..]
 }
 
@@ -109,6 +125,11 @@ impl Engine {
     pub fn khmer_candidates(&self, ctx: &Ctx) -> Vec<Cand> {
         suggest::khmer_suggest(&self.model, self.scorer.as_ref(), ctx, LIMIT)
     }
+    /// Auto candidates for a pending run after `prev` ("^" at sentence start): Khmerlish, English and NiDA readings merged.
+    pub fn auto_candidates(&self, run: &str, prev: &str) -> Vec<Cand> {
+        suggest::auto_suggest(&self.model, self.scorer.as_ref(), run, prev, LIMIT)
+    }
+
     /// Latin candidates for a pending token after `prev` ("^" at sentence start).
     pub fn latin_candidates(&self, token: &str, prev: &str) -> Vec<Cand> {
         suggest::rom_suggest(&self.model, self.scorer.as_ref(), token, prev, LIMIT)
@@ -122,10 +143,11 @@ impl Engine {
     /// The reference's `refresh()`: decide what is pending and rank candidates.
     pub(crate) fn resolve(&self, text_before: &str, mode: Mode, just_accepted: Option<&str>) -> Resolved {
         let before = normalize(text_before);
-        let token = if mode != Mode::Khmer && just_accepted.is_none() {
-            latin_suffix(&before).to_string()
-        } else {
-            String::new()
+        let token = match mode {
+            _ if just_accepted.is_some() => String::new(),
+            Mode::Khmer => String::new(),
+            Mode::Auto => ascii_run(&before).to_string(),
+            _ => latin_suffix(&before).to_string(),
         };
         if !token.is_empty() {
             let mut ctx = self.analyze(&before[..before.len() - token.len()]);
@@ -133,10 +155,10 @@ impl Engine {
                 ctx.tokens.push(ctx.partial.clone());
                 ctx.prev = std::mem::take(&mut ctx.partial);
             }
-            let cands = if mode == Mode::English {
-                self.english_candidates(&token, &ctx.prev)
-            } else {
-                self.latin_candidates(&token, &ctx.prev)
+            let cands = match mode {
+                Mode::English => self.english_candidates(&token, &ctx.prev),
+                Mode::Auto => self.auto_candidates(&token, &ctx.prev),
+                _ => self.latin_candidates(&token, &ctx.prev),
             };
             return Resolved { before, token, ctx, cands, just_accepted: false };
         }
@@ -150,14 +172,17 @@ impl Engine {
 
     pub(crate) fn shape(&self, raw: &str, r: &Resolved, c: &Cand) -> Candidate {
         let latin = !r.token.is_empty();
-        let replace = if latin {
+        let replace = if let Some(span) = &c.span {
+            span.clone()
+        } else if latin {
             r.token.clone()
         } else if c.append || r.just_accepted {
             String::new()
         } else {
             r.ctx.partial.clone()
         };
-        let replace_len_utf16 = if latin { r.token.len() } else { raw_suffix_len_utf16(raw, &r.before, &replace) };
+        let replace_len_utf16 =
+            if latin && c.span.is_none() { r.token.len() } else { raw_suffix_len_utf16(raw, &r.before, &replace) };
         Candidate {
             word: c.word.clone(),
             kind: c.kind,
@@ -167,6 +192,7 @@ impl Engine {
             prob: c.p.map(|p| p as f32),
             roman: c.roman.clone(),
             why: c.why.clone(),
+            source: c.source,
         }
     }
 

@@ -38,6 +38,30 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(c.first?.roman, "water")
     }
 
+    func testAutoMode() throws {
+        let e = try engine()
+        // Khmerlish, an English word and keys of the Khmer layout all convert on Space; each candidate has its own span
+        guard case .insert(let k) = try e.keyAction(textBeforeCaret: "knhom", mode: .auto, key: .space) else { return XCTFail("expected insert") }
+        XCTAssertEqual(k.word, "ខ្ញុំ")
+        XCTAssertEqual(k.source, "khmerlish")
+        guard case .insert(let w) = try e.keyAction(textBeforeCaret: "hello,water", mode: .auto, key: .space) else { return XCTFail("expected insert") }
+        XCTAssertEqual(w.word, "ទឹក")
+        XCTAssertEqual(w.source, "english")
+        XCTAssertEqual(w.replaceLenUtf16, 5)  // "water" only, the comma and "hello" stay
+        guard case .insert(let n) = try e.keyAction(textBeforeCaret: "xjJuM", mode: .auto, key: .space) else { return XCTFail("expected insert") }
+        XCTAssertEqual(n.word, "ខ្ញុំ")
+        XCTAssertEqual(n.source, "nida")
+        XCTAssertEqual(n.replaceLenUtf16, 5)
+        // an unknown English word stays as typed and offers the two chips
+        XCTAssertEqual(try e.keyAction(textBeforeCaret: "windows", mode: .auto, key: .space), .passThrough)
+        XCTAssertEqual(try e.keyAction(textBeforeCaret: "windows", mode: .auto, key: .enter), .passThrough)
+        let chips = try e.suggest(textBeforeCaret: "windows", mode: .auto)
+        XCTAssertEqual(chips.map { $0.kind }, ["layout", "raw"])
+        XCTAssertEqual(chips.last?.word, "windows")
+        // text that ends in Khmer still gets next-word suggestions
+        XCTAssertFalse(try e.suggest(textBeforeCaret: "ខ្ញុំ ", mode: .auto).isEmpty)
+    }
+
     func testLayout() {
         XCTAssertEqual(KhmerEngine.layoutMap(macKeyCode: 40, shift: false, altgr: false), "ក")  // K
         XCTAssertEqual(KhmerEngine.layoutMap(macKeyCode: 40, shift: true, altgr: false), "គ")

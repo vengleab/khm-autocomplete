@@ -44,12 +44,17 @@ final class KhmerInputController: IMKInputController {
         guard let event = event, event.type == .keyDown, let client = sender as? IMKTextInput else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        // hot key to change mode: Control + Option + Space
+        // hot key to switch between the Khmer and English states: Control + Option + Space
         if event.keyCode == Code.space, flags.contains(.control), flags.contains(.option) {
-            Settings.shared.cycleMode()
-            justAccepted = nil
+            Settings.shared.toggleState()
+            forgetAccepted()
             refresh()
             return true
+        }
+        // English state: pure pass-through, the engine is not called
+        if Settings.shared.state == .english {
+            hideCandidates()
+            return false
         }
         // shortcuts belong to the application
         if flags.contains(.command) || flags.contains(.control) { return false }
@@ -58,18 +63,14 @@ final class KhmerInputController: IMKInputController {
             return false
         }
 
-        let mode = Settings.shared.mode
+        // Khmer state: the keys are never remapped. Letters, digits and punctuation land in the document as typed (the
+        // pending run) and the engine reads the run; only Space / Enter / Tab are asked about, and they always go to it.
         switch event.keyCode {
         case Code.tab where !flags.contains(.shift):
             return perform(.tab, client)
         case Code.enter, Code.keypadEnter:
             return perform(.enter, client)
         case Code.space:
-            if mode == .khmer {  // a plain space in Khmer mode: let it through, it finishes the word
-                forgetAccepted()
-                refreshSoon()
-                return false
-            }
             return perform(.space, client)
         case Code.escape:
             hideCandidates()
@@ -82,15 +83,9 @@ final class KhmerInputController: IMKInputController {
             break
         }
 
+        // letters, digits, punctuation, arrows, Khmer script from the OS keyboard: the application inserts them;
+        // look again once it has
         forgetAccepted()
-        if mode == .khmer,
-           let khmer = KhmerEngine.layoutMap(macKeyCode: event.keyCode, shift: flags.contains(.shift), altgr: flags.contains(.option)) {
-            // Khmer mode types Khmer itself, from the physical key (Khmer NiDA layout)
-            client.insertText(khmer, replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
-            refresh()
-            return true
-        }
-        // Latin and English letters, arrows, etc.: the application inserts them; look again once it has
         refreshSoon()
         return false
     }
@@ -156,7 +151,7 @@ final class KhmerInputController: IMKInputController {
     private func perform(_ key: SpecialKey, _ client: IMKTextInput) -> Bool {
         guard let engine = Runtime.shared.engine, let text = textBeforeCaret(client) else { return false }
         let accepted = caretMoved(client) ? nil : justAccepted
-        let action = (try? engine.keyAction(textBeforeCaret: text, mode: Settings.shared.mode, key: key, justAccepted: accepted)) ?? .passThrough
+        let action = (try? engine.keyAction(textBeforeCaret: text, mode: Settings.shared.engineMode, key: key, justAccepted: accepted)) ?? .passThrough
         switch action {
         case .insert(let candidate):
             apply(candidate, to: client)
@@ -185,13 +180,13 @@ final class KhmerInputController: IMKInputController {
 
     /// Recompute and show the suggestions for the current text.
     private func refresh() {
-        guard let client = self.client(), suggestionsAllowed(for: client), let engine = Runtime.shared.engine,
-              let text = textBeforeCaret(client) else {
+        guard Settings.shared.state == .khmer, let client = self.client(), suggestionsAllowed(for: client),
+              let engine = Runtime.shared.engine, let text = textBeforeCaret(client) else {
             hideCandidates()
             return
         }
         if caretMoved(client) { forgetAccepted() }
-        current = (try? engine.suggest(textBeforeCaret: text, mode: Settings.shared.mode, justAccepted: justAccepted)) ?? []
+        current = (try? engine.suggest(textBeforeCaret: text, mode: Settings.shared.engineMode, justAccepted: justAccepted)) ?? []
         showCandidates()
     }
 
@@ -204,12 +199,12 @@ final class KhmerInputController: IMKInputController {
 
     override func menu() -> NSMenu! {
         let menu = NSMenu()
-        let items: [(String, InputMode)] = [("Khmer script", .khmer), ("Latin input (Khmerlish)", .latin), ("English → Khmer", .english)]
-        for (title, mode) in items {
+        let items: [(String, Settings.State)] = [("Khmer", .khmer), ("English (off)", .english)]
+        for (title, state) in items {
             let item = NSMenuItem(title: title, action: #selector(selectMode(_:)), keyEquivalent: "")
             item.target = self
-            item.tag = Int(mode.rawValue)
-            item.state = Settings.shared.mode == mode ? .on : .off
+            item.tag = state.rawValue
+            item.state = Settings.shared.state == state ? .on : .off
             menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -223,8 +218,8 @@ final class KhmerInputController: IMKInputController {
         // InputMethodKit passes a dictionary holding the menu item; be liberal about what arrives
         var item = sender as? NSMenuItem
         if item == nil, let d = sender as? NSDictionary { item = d["IMKCommandMenuItem"] as? NSMenuItem }
-        guard let tag = item?.tag, let mode = InputMode(rawValue: Int32(tag)) else { return }
-        Settings.shared.mode = mode
+        guard let tag = item?.tag, let state = Settings.State(rawValue: tag) else { return }
+        Settings.shared.state = state
         forgetAccepted()
         refresh()
     }

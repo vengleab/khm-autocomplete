@@ -1,5 +1,5 @@
 // Makes the Rust engine (WebAssembly) look like the JS `Engine` the demo UI was written against:
-// analyze(text), suggest(ctx), romSuggest(token, ctx), words.length, meta, N.
+// analyze(text), suggest(ctx), romSuggest(token, ctx), enSuggest, autoSuggest(run, ctx), words.length, meta, N.
 // Loaded before the template; `wasm_bindgen` (no-modules glue) must already be initialised.
 (function () {
   const { WasmEngine } = wasm_bindgen;
@@ -20,6 +20,8 @@
     romSuggest(token, ctx) {
       return JSON.parse(this.core.latinCandidates(token, ctx.prev)).map(c => ({ ...c, replace: token }));
     }
+    // Auto: each candidate comes back with its own `replace` span and `source`
+    autoSuggest(run, ctx) { return JSON.parse(this.core.autoCandidates(run, ctx.prev)); }
   }
   window.KH_MAKE_ENGINE = data => new KhWasmEngine(data);
 })();

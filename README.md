@@ -1,6 +1,8 @@
 # Khmer autocomplete demo
 
-Three input modes in one page:
+Four input modes in one page. **Auto** (the default) is the one the keyboards use: a single Khmer state that works out whether you
+typed Khmerlish, an English word, keys of the Khmer (NiDA) layout, or Khmer script. The other three are kept to compare:
+- Auto: type `knhom chong`, `water` or `xjJuM` (the Khmer layout keys of ខ្ញុំ) and press Space; nothing is remapped, the page reads the run.
 - Khmer script: word completion, next-word prediction, typo fixes, on-screen Khmer keyboard.
 - Latin input (Khmerlish): type Khmer in Latin letters ("knhom chong nham bay"), press Space to convert each word to Khmer script.
 - English: type an English word ("water", "eating"), press Space to turn it into Khmer. Uses data/english.json, a small hand-written glossary.
