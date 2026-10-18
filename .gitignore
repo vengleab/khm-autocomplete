@@ -7,3 +7,5 @@ __pycache__/
 web/pkg/
 web/pkg-nomodules/
 web/index-wasm.html
+data/khmer.db
+data/khmer.db-journal

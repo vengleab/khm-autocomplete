@@ -52,3 +52,28 @@ pub const KEYS: [Key; 47] = [
     Key { us: '.', mac: 47, win: 0x34, levels: ["។", "៕", ".", "᧿"] }, // AB09
     Key { us: '/', mac: 44, win: 0x35, levels: ["៊", "?", "/", ""] }, // AB10
 ];
+
+/// US Shift pairs: (the character a US keyboard types with Shift, the unshifted character of its key).
+pub const SHIFTED_US: [(char, char); 21] = [
+    ('!', '1'),
+    ('@', '2'),
+    ('#', '3'),
+    ('$', '4'),
+    ('%', '5'),
+    ('^', '6'),
+    ('&', '7'),
+    ('*', '8'),
+    ('(', '9'),
+    (')', '0'),
+    ('_', '-'),
+    ('+', '='),
+    ('~', '`'),
+    ('{', '['),
+    ('}', ']'),
+    ('|', '\\'),
+    (':', ';'),
+    ('"', '\''),
+    ('<', ','),
+    ('>', '.'),
+    ('?', '/'),
+];

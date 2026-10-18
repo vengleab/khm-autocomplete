@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embed data.json, lexicon.json and english.json into template.html.
+"""Embed data.json, lexicon.json, english.json and mapping.json into template.html.
 
   python3 web/build_demo.py [data.json]          -> web/index.html (JS engine, standalone) and web/artifact.html (fragment)
   python3 web/build_demo.py [data.json] --wasm   -> also web/index-wasm.html: the same page running the Rust engine
@@ -22,7 +22,8 @@ data = read(args[0] if args else os.path.join(DATA, "data.json"))
 tpl = read(os.path.join(HERE, "template.html"))
 lex = read(os.path.join(DATA, "lexicon.json"))
 en = read(os.path.join(DATA, "english.json"))
-frag = tpl.replace("__DATA__", data).replace("__LEX__", lex).replace("__EN__", en)
+mapping = read(os.path.join(DATA, "mapping.json")) if os.path.exists(os.path.join(DATA, "mapping.json")) else "null"
+frag = tpl.replace("__DATA__", data).replace("__LEX__", lex).replace("__EN__", en).replace("__MAP__", mapping)
 open(os.path.join(HERE, "artifact.html"), "w", encoding="utf-8").write(frag)
 HEAD = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'

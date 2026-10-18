@@ -29,7 +29,10 @@ fn suggestions_through_the_pipe_equal_direct_calls() {
     let direct = engine();
     let mut c = client();
     assert_eq!(c.ping(T).unwrap().vocab, 277);
-    let cases: [(&str, Mode, u8, Option<&str>); 7] = [
+    let cases: [(&str, Mode, u8, Option<&str>); 10] = [
+        ("knhom", Mode::Auto, 3, None),
+        ("hello,water", Mode::Auto, 3, None),
+        ("windows", Mode::Auto, 3, None),
         ("ខ្ញុំ ស្រ", Mode::Khmer, 0, None),
         ("ខ្ញុំ ចូលចិត្ត ", Mode::Khmer, 0, None),
         ("ខ្ញុំ ចូលចិត្ត ញ៉ាំ", Mode::Khmer, 0, Some("ញ៉ាំ")),
@@ -55,6 +58,7 @@ fn suggestions_through_the_pipe_equal_direct_calls() {
                 "{text:?}"
             );
             assert_eq!(g.roman, w.roman);
+            assert_eq!(g.source.as_deref(), w.source);
         }
     }
 }
@@ -72,6 +76,11 @@ fn key_actions_through_the_pipe() {
         ("ខ្ញុំ", Mode::Khmer, 0, Key::Space, 0),
         ("ស្រ", Mode::Khmer, 0, Key::Tab, 2),
         ("knyom", Mode::Latin, 1, Key::Enter, 1),
+        ("knhom", Mode::Auto, 3, Key::Space, 0),
+        ("hello,water", Mode::Auto, 3, Key::Space, 0),
+        ("windows", Mode::Auto, 3, Key::Space, 0),
+        ("windows", Mode::Auto, 3, Key::Tab, 2),
+        ("windows", Mode::Auto, 3, Key::Enter, 1),
     ] {
         let got = c.key_action(text, mcode, kcode, None, T).unwrap();
         match (got, direct.key_action(text, mode, key, None)) {

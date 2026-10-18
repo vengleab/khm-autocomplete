@@ -11,6 +11,11 @@ pub struct ComposeCand {
 }
 
 pub fn compose(token: &str, prior: &HashMap<char, f64>) -> Vec<ComposeCand> {
+    compose_with(Tables::builtin(), token, prior)
+}
+
+/// `compose` with the charts of `tb` (a mapping file's tables instead of the built-in ones).
+pub fn compose_with(tb: &Tables, token: &str, prior: &HashMap<char, f64>) -> Vec<ComposeCand> {
     let t: String = token.to_lowercase().chars().filter(|c| c.is_ascii_lowercase()).collect();
     if t.is_empty() {
         return vec![];
@@ -19,17 +24,17 @@ pub fn compose(token: &str, prior: &HashMap<char, f64>) -> Vec<ComposeCand> {
     let mut pos: HashMap<String, usize> = HashMap::new();
 
     let mut onsets: Vec<(&str, Vec<char>)> = vec![("", vec!['អ'])];
-    for (o, letters) in onset_lat() {
-        if t.starts_with(o) {
+    for (o, letters) in tb.onset_lat() {
+        if t.starts_with(o.as_str()) {
             onsets.push((o, letters.clone()));
         }
     }
     for (o, letters) in onsets {
         let rest = &t[o.len()..];
         let mut finals: Vec<(&str, Vec<String>)> = vec![("", vec![String::new()])];
-        for (lat, ls) in FINAL_LAT.iter() {
-            if rest.len() > lat.len() && rest.ends_with(lat) {
-                finals.push((lat, ls.iter().map(|c| c.to_string()).collect()));
+        for (lat, ls) in tb.final_lat.iter() {
+            if rest.len() > lat.len() && rest.ends_with(lat.as_str()) {
+                finals.push((lat.as_str(), ls.iter().map(|c| c.to_string()).collect()));
             }
         }
         for (flat, fl) in &finals {
@@ -37,18 +42,18 @@ pub fn compose(token: &str, prior: &HashMap<char, f64>) -> Vec<ComposeCand> {
             if v.is_empty() {
                 continue;
             }
-            for e in VOW.iter() {
+            for e in tb.vow.iter() {
                 for r in [Series::A, Series::O] {
-                    if !e.readings(r).contains(&v) {
+                    if !e.readings(r).iter().any(|x| x == v) {
                         continue;
                     }
-                    let mut ls: Vec<char> = letters.iter().copied().filter(|l| series_of(*l) == Some(r)).collect();
+                    let mut ls: Vec<char> = letters.iter().copied().filter(|l| tb.series_of(*l) == Some(r)).collect();
                     let mut mark: Option<char> = None;
                     if ls.is_empty() {
                         ls = letters
                             .iter()
                             .copied()
-                            .filter(|l| if r == Series::A { to_a(*l) } else { to_o(*l) })
+                            .filter(|l| if r == Series::A { tb.to_a(*l) } else { tb.to_o(*l) })
                             .collect();
                         mark = Some(if r == Series::A { '\u{17C9}' } else { '\u{17CA}' });
                     }
@@ -61,9 +66,9 @@ pub fn compose(token: &str, prior: &HashMap<char, f64>) -> Vec<ComposeCand> {
                             if let Some(m) = mark {
                                 head.push(m);
                             }
-                            head.push_str(e.s);
+                            head.push_str(&e.s);
                             let w = format!("{head}{f}");
-                            let ser_word = if series_of(*l) == Some(Series::A) { "first" } else { "second" };
+                            let ser_word = if tb.series_of(*l) == Some(Series::A) { "first" } else { "second" };
                             let why = format!(
                                 "{}: {}-series {}{}, reads \"{}\"",
                                 head,

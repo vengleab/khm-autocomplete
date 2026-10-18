@@ -9,6 +9,7 @@ fn mode_of(m: u8) -> Result<Mode, String> {
         0 => Ok(Mode::Khmer),
         1 => Ok(Mode::Latin),
         2 => Ok(Mode::English),
+        3 => Ok(Mode::Auto),
         _ => Err(format!("unknown mode {m}")),
     }
 }

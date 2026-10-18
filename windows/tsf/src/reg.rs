@@ -1,4 +1,4 @@
-//! Registry: the user's mode setting, where this DLL lives, and COM / TSF registration (regsvr32 calls
+//! Registry: the user's state setting (Khmer / English), where this DLL lives, and COM / TSF registration (regsvr32 calls
 //! `DllRegisterServer`, see dll.rs). Only settings are stored; typed text never is.
 use crate::guids::*;
 use std::path::PathBuf;
@@ -7,8 +7,8 @@ use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, HMODULE};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegGetValueW, RegSetValueExW, HKEY, HKEY_CLASSES_ROOT,
-    HKEY_CURRENT_USER, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_DWORD,
+    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegDeleteValueW, RegGetValueW, RegSetValueExW, HKEY,
+    HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_DWORD,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
 use windows::Win32::UI::TextServices::{
@@ -49,7 +49,7 @@ pub fn dll_dir() -> Option<PathBuf> {
     dll_path().and_then(|p| p.parent().map(|d| d.to_path_buf()))
 }
 
-pub fn load_mode() -> u32 {
+fn read_dword(name: PCWSTR) -> Option<u32> {
     let key = wide(REG_SETTINGS_KEY);
     let mut v = 0u32;
     let mut len = 4u32;
@@ -57,21 +57,49 @@ pub fn load_mode() -> u32 {
         RegGetValueW(
             HKEY_CURRENT_USER,
             PCWSTR(key.as_ptr()),
-            windows::core::w!("Mode"),
+            name,
             RRF_RT_REG_DWORD,
             None,
             Some((&mut v as *mut u32).cast()),
             Some(&mut len),
         )
     };
-    if r.is_ok() {
-        v
-    } else {
-        0
-    }
+    r.is_ok().then_some(v)
 }
 
-pub fn save_mode(mode: u32) {
+/// The stored state: 0 English, 1 Khmer (`logic::Mode`). Nothing stored means Khmer.
+/// Earlier versions stored one of three modes (0 Khmer, 1 Latin, 2 English) under "Mode"; all of them are the Khmer
+/// state now, so that value is dropped (it would read as the wrong thing under the new numbering).
+pub fn load_state() -> u32 {
+    if let Some(v) = read_dword(windows::core::w!("State")) {
+        return v;
+    }
+    if read_dword(windows::core::w!("Mode")).is_some() {
+        unsafe {
+            let key = wide(REG_SETTINGS_KEY);
+            let mut h = HKEY::default();
+            if RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(key.as_ptr()),
+                None,
+                PCWSTR::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_WRITE,
+                None,
+                &mut h,
+                None,
+            )
+            .is_ok()
+            {
+                let _ = RegDeleteValueW(h, windows::core::w!("Mode"));
+                let _ = RegCloseKey(h);
+            }
+        }
+    }
+    crate::logic::Mode::Khmer as u32
+}
+
+pub fn save_state(state: u32) {
     unsafe {
         let key = wide(REG_SETTINGS_KEY);
         let mut h = HKEY::default();
@@ -88,7 +116,7 @@ pub fn save_mode(mode: u32) {
         )
         .is_ok()
         {
-            let _ = RegSetValueExW(h, windows::core::w!("Mode"), None, REG_DWORD, Some(&mode.to_le_bytes()));
+            let _ = RegSetValueExW(h, windows::core::w!("State"), None, REG_DWORD, Some(&state.to_le_bytes()));
             let _ = RegCloseKey(h);
         }
     }

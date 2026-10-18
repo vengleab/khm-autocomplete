@@ -42,3 +42,25 @@ pub fn map(code: KeyCode, shift: bool, altgr: bool) -> Option<&'static str> {
     let level = usize::from(shift) + 2 * usize::from(altgr);
     key_for(code).map(|k| k.levels[level]).filter(|s| !s.is_empty())
 }
+
+/// What the key that types `c` on a US keyboard types on the Khmer layout. Auto mode uses this to read ASCII that
+/// was typed with the physical keys of a US keyboard: letters and unshifted symbols use the normal level, capitals
+/// and shifted symbols the Shift level (`?` is Shift + the `/` key). `None` for anything that is not a
+/// printable ASCII key, or whose key has nothing on that level.
+pub fn from_ascii(c: char) -> Option<&'static str> {
+    if !c.is_ascii_graphic() {
+        return None;
+    }
+    if c.is_ascii_uppercase() {
+        return map(KeyCode::Us(c.to_ascii_lowercase()), true, false);
+    }
+    match SHIFTED_US.iter().find(|(shifted, _)| *shifted == c) {
+        Some(&(_, base)) => map(KeyCode::Us(base), true, false),
+        None => map(KeyCode::Us(c), false, false),
+    }
+}
+
+/// `from_ascii` for a whole run of keys, or `None` if any one of them has no Khmer reading.
+pub fn read_ascii(run: &str) -> Option<String> {
+    run.chars().map(from_ascii).collect()
+}

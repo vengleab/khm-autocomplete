@@ -6,6 +6,8 @@
 // Everything is deterministic (seeded PRNG), so re-running must leave `git status` clean.
 // The UI part of the template (refresh/accept/commitLatin) needs a DOM, so the few lines of it that carry
 // engine behavior are restated below (refreshJS, commitLatinJS, keyJS); tests/check.mjs covers the real UI.
+// Auto mode needs no restating: autoResolve / autoKey are DOM-free and live in the engine part of the template, so the
+// `nida`, `auto` and `flowsAuto` sections run the reference as it is. They use their own PRNG, so older vectors never move.
 import fs from 'fs';
 import vm from 'vm';
 import path from 'path';
@@ -23,9 +25,9 @@ const ANCHOR = '/* -------------------------------------------------------------
 if (script.split(ANCHOR).length !== 2) throw new Error('UI anchor not unique in template.html');
 const enginePart = script.split(ANCHOR)[0];
 
-function loadRef(dataText, lexText, enText) {
-  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText).replace('__EN__', () => enText) +
-    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, enKey, enStems, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, EN, SEED});';
+function loadRef(dataText, lexText, enText, mapText = 'null') {
+  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText).replace('__EN__', () => enText).replace('__MAP__', () => mapText) +
+    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, enKey, enStems, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, EN, SEED, NIDA, nidaRead, autoResolve, autoKey, setMapping});';
   const ref = vm.runInNewContext(code);
   ref.E = new ref.Engine(JSON.parse(dataText));
   return ref;
@@ -189,6 +191,7 @@ write('tables.json', {
   cons: seedRef.CONS, vow: seedRef.VOW, final: seedRef.FINAL, indep: seedRef.INDEP,
   onsetLat: Object.entries(seedRef.ONSET_LAT), finalLat: Object.entries(seedRef.FINAL_LAT),
   toA: [...seedRef.TO_A], toO: [...seedRef.TO_O], vowsigns: [...seedRef.VOWSIGNS],
+  nida: seedRef.NIDA,
 });
 
 // ------------------------------------------------------------------ ln (segmentation costs depend on it)
@@ -334,11 +337,98 @@ function engineGolden(name, ref, words, sents, latinPool) {
       keys: Object.fromEntries(['space', 'enter', 'tab'].map(k => [k, keyJS(ref, t, 'english', k, null)])),
     });
   }
-  write(`engine_${name}.json`, { name, analyze, khmer, latin, compose: comp, flows, english, flowsEn });
+  // ---- Auto mode (its own PRNG again: adding it must not move any existing vector)
+  const RA = mulberry32(9091 + words.length), ra = k => Math.floor(RA() * k), rq = a => a[ra(a.length)];
+  const INV = {};                      // Khmer text -> the key that types it (first key wins)
+  for (const [k, v] of Object.entries(ref.NIDA)) if (!(v in INV)) INV[v] = k;
+  const keysOf = w => { let o = ''; for (const ch of w) { if (INV[ch] === undefined) return null; o += INV[ch]; } return o; };
+  const ASCII = Array.from({ length: 94 }, (_, i) => String.fromCharCode(33 + i));
+  const asciiOnly = x => x.replace(/[^\x21-\x7e]/g, '');
+  const garbage = () => Array.from({ length: 1 + ra(7) }, () => rq(ASCII)).join('');
+  const runs = [...ASCII];
+  for (let i = 0; i < 100; i++) runs.push(garbage());
+  for (const t of toks.filter((_, i) => i % 5 === 0)) runs.push(asciiOnly(t));
+  for (const t of etoks.filter((_, i) => i % 9 === 0)) runs.push(asciiOnly(t));
+  for (const w of words) {
+    const cl = ref.clusters(w), k = keysOf(w);
+    if (!k) continue;
+    runs.push(k, keysOf(cl.slice(0, 1 + ra(cl.length)).join('')), keysOf(w + rq(words)) || k, k + rq(ASCII), rq([',', '.', '(', '1']) + k);
+  }
+  runs.push('knhom', 'xjJuM', 'hello,water', 'don\'t', 'a-b', '1', '123', '12ab', '"', "'", '-', 'ABC', 'Knhom', 'Water', 'xjJuM.', '៛');
+  const clean = c => ({ word: c.word, kind: c.kind, append: !!c.append, tier: c.tier === undefined ? null : c.tier, p: c.p === undefined ? null : c.p, rom: c.rom === undefined ? null : c.rom, why: c.why === undefined ? null : c.why, replace: c.replace, source: c.source });
+  const nida = [...new Set(runs.filter(Boolean))].map(run => ({ run, reading: ref.nidaRead(run) }));
+  const auto = runs.filter(Boolean).map(run => {
+    const t = rq(['', '', rq(sents).split(' ').slice(0, 2).join(' ') + ' ', rq(sents).replace(/ /g, '').slice(0, 9)]);
+    const ctx = E.analyze(ref.normalize(t)); if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ''; }
+    return { text: t, run, prev: ctx.prev, out: E.autoSuggest(run, ctx).map(clean) };
+  });
+  const flowsAuto = [];
+  const atexts = [];
+  for (const run of runs.filter((_, i) => i % 3 === 0)) atexts.push(rq(['', '', rq(sents).split(' ').slice(0, 1 + ra(2)).join(' ') + ' ', rq(sents).replace(/ /g, '').slice(0, 7), 'hello,']) + run);
+  for (const s of sents.slice(0, 30)) { const ws = s.split(' '); atexts.push(ws.slice(0, 1 + ra(ws.length)).join(' ') + ' ', ws.slice(0, 1 + ra(ws.length)).join('')); }
+  for (const w of words.slice(0, 40)) atexts.push(w, ref.clusters(w).slice(0, 2).join(''));
+  atexts.push('', ' ', 'knhom', 'knhom ', 'water', 'hello,water', 'ខ្ញុំ knhom', 'ខ្ញុំknhom', 'ខ្ញុំ\u200bwater', 'ខ្ញុំ ចូលចិត្ត ', 'ខ្ញុំ ចូលចិត្ត ញ៉ាំ', '123', '.', 'knhom.', 'xjJuM', 'xjJuMcDM', 'ខ្ញុំ។ knhom');
+  const keyOut = (text, key, completed) => {
+    const c = ref.autoKey(E, text, key, completed);
+    return c ? acceptInfo(ref, text, key === 'space' ? null : completed, null, c) : null;
+  };
+  for (const t of atexts) {
+    for (const completed of [null, ...(ra(6) === 0 ? [rq(words)] : [])]) {
+      const r = ref.autoResolve(E, t, completed);
+      flowsAuto.push({
+        text: t, mode: 'auto', completed, run: r.run,
+        current: r.current.map(c => ({ ...clean(c), replace: acceptInfo(ref, t, completed, r.ctx, c).replace, source: c.source === undefined ? null : c.source })),
+        keys: Object.fromEntries(['space', 'enter', 'tab'].map(k => [k, keyOut(t, k, completed)])),
+      });
+    }
+  }
+  write(`engine_${name}.json`, { name, analyze, khmer, latin, compose: comp, flows, english, flowsEn, nida, auto, flowsAuto });
 }
 
 const synthWords = synth.data.words;
 const synthSentences = Array.from({ length: 150 }, () => Array.from({ length: 2 + ri(4) }, () => synthWords[Math.floor(Math.pow(R(), 2) * 6000)]).join(' '));
-engineGolden('seed', seedRef, seedWords, sentences, lexVals);
-engineGolden('synth', synthRef, Array.from({ length: 120 }, () => synthWords[Math.floor(Math.pow(R(), 1.3) * 21000)]), synthSentences, Object.values(synth.lex).flatMap(v => v.split(/\s+/)).filter((_, i) => i % 40 === 0));
+// GOLDEN_ONLY=mapped skips the two slow engine sections (the mapped vectors have their own PRNG and need nothing from them)
+const SKIP_ENGINE = process.env.GOLDEN_ONLY === 'mapped';
+if (!SKIP_ENGINE) engineGolden('seed', seedRef, seedWords, sentences, lexVals);
+if (!SKIP_ENGINE) engineGolden('synth', synthRef, Array.from({ length: 120 }, () => synthWords[Math.floor(Math.pow(R(), 1.3) * 21000)]), synthSentences, Object.values(synth.lex).flatMap(v => v.split(/\s+/)).filter((_, i) => i % 40 === 0));
+
+// ------------------------------------------------------------------ a custom mapping (the charts as data; built from admin/default_mapping.json, never from data/mapping.json, which the admin pages overwrite)
+// The engine reads its consonant / vowel charts from a mapping file. This one differs from the built-in charts in every
+// way a mapping can: a final spelled with the onset letter (leab), extra vowel readings, new vowel rows, an onset that
+// replaces a built-in one, a changed first reading (so generated spellings change) and a letter that cannot switch series.
+{
+  const base = JSON.parse(read('admin/default_mapping.json'));
+  const m = JSON.parse(JSON.stringify(base));
+  const cons = l => m.consonants.find(c => c.letter === l);
+  const vow = sg => m.vowels.find(v => v.sign === sg);
+  cons('ប').final = 'b'; cons('ដ').final = 'd'; cons('គ').final = 'g';          // generated spellings change: លាប reads "leab"
+  cons('ឋ').onset = 'tth'; cons('ន').toA = false; cons('ង').toA = false;
+  m.finals.push({ latin: 'b', letters: 'ប' }, { latin: 'd', letters: 'ដ' }, { latin: 'g', letters: 'គ' });
+  m.onsetExtra.push({ latin: 'gn', letters: 'ញ' });
+  m.onsetExtra.find(x => x.latin === 'c').letters = 'ច';                          // replaces the built-in "c" in place
+  vow('ិ').O.push('e'); vow('ូ').A.push('au', 'o'); vow('ំ').O.push('oum'); vow('ះ').A.unshift('as');
+  m.vowels.push({ sign: 'ុះ', A: ['os'], O: ['ous'] }, { sign: 'េះ', A: ['es'], O: ['es'] }, { sign: 'ោះ', A: ['aso'], O: ['uos'] });
+  m.independent.push({ letter: 'ឝ', latin: 'sha' });
+  write('mapping_custom.json', m);
+  const mapText = JSON.stringify(m);
+  const ref = loadRef(read('data/data.json'), read('data/lexicon.json'), read('data/english.json'), mapText);
+  const E = ref.E, RM = mulberry32(4242), rm = k => Math.floor(RM() * k), rp = a => a[rm(a.length)];
+  const romanizeCases = [...seedWords, 'លាប', 'កាប', 'ដាដ', 'គាគ', 'ឋាន', 'ក្នុង', 'ឝ', 'ក៏', 'កុះ', 'កេះ', 'កោះ', 'គោះ', 'ម៉ូ', 'ស៊ី'].map(w => ({ word: w, roman: ref.romanize(w) }));
+  const tokens = ['leab', 'leap', 'lieb', 'kab', 'kad', 'kag', 'bob', 'ten', 'sok', 'phnom', 'kos', 'kes', 'kaso', 'kuos', 'gnom', 'coc', 'tthan', 'knhom', 'sabay', 'koum', 'kau', 'kum', 'koum', 'ket', 'kit',
+    ...lexVals.filter((_, i) => i % 3 === 0)];
+  for (let i = 0; i < 120; i++) tokens.push(Array.from({ length: 1 + rm(2) }, () => rp(ONS) + rp(VOWS) + rp(['', '', 'b', 'd', 'g', 'k', 'ng', 't', 'p', 's', 'h'])).join(''));
+  const prior = E.prior;
+  const latin = tokens.map(tk => {
+    const t = rp(['', '', rp(sentences).split(' ').slice(0, 2).join(' ') + ' ']);
+    const ctx = E.analyze(ref.normalize(t)); if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ''; }
+    return { text: t, token: tk, prev: ctx.prev, out: E.romSuggest(tk, ctx).map(cleanCand) };
+  });
+  const comp = tokens.map(t => ({ t, out: ref.compose(t, prior) }));
+  const runs = [...tokens.slice(0, 80), 'xjJuM', 'hello,water', 'leab,', 'windows'];
+  const auto = runs.map(run => {
+    const ctx = E.analyze(''); 
+    return { run, prev: ctx.prev, out: E.autoSuggest(run, ctx).map(c => ({ word: c.word, kind: c.kind, tier: c.tier, p: c.p === undefined ? null : c.p, rom: c.rom === undefined ? null : c.rom, why: c.why === undefined ? null : c.why, replace: c.replace, source: c.source })) };
+  });
+  write('engine_mapped.json', { name: 'mapped', romanize: romanizeCases, latin, compose: comp, auto });
+}
 console.log('golden files written to', HERE);

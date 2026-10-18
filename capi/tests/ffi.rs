@@ -250,3 +250,63 @@ fn many_threads_share_one_engine() {
         kh_engine_free(e);
     }
 }
+
+#[test]
+fn auto_mode_reads_the_run_three_ways() {
+    unsafe {
+        let r = root();
+        let (d, l, en) = (
+            c(r.join("data/data.json").to_str().unwrap()),
+            c(r.join("data/lexicon.json").to_str().unwrap()),
+            c(r.join("data/english.json").to_str().unwrap()),
+        );
+        let e = kh_engine_open_with_english(d.as_ptr(), l.as_ptr(), en.as_ptr());
+        assert!(!e.is_null(), "{:?}", err());
+        assert_eq!(KH_MODE_AUTO, 3);
+        let action = |text: &str, key| -> Value {
+            serde_json::from_str(&take(kh_key_action(e, c(text).as_ptr(), KH_MODE_AUTO, key, std::ptr::null())))
+                .unwrap()
+        };
+        // Khmerlish, an English word with punctuation before it, and keys of the Khmer layout
+        let a = action("knhom", KH_KEY_SPACE);
+        assert_eq!(
+            (a["candidate"]["word"].as_str(), a["candidate"]["source"].as_str()),
+            (Some("ខ្ញុំ"), Some("khmerlish"))
+        );
+        let a = action("hello,water", KH_KEY_SPACE);
+        assert_eq!(a["candidate"]["word"], "ទឹក");
+        assert_eq!(a["candidate"]["replace_len_utf16"], 5);
+        let a = action("xjJuM", KH_KEY_SPACE);
+        assert_eq!((a["candidate"]["word"].as_str(), a["candidate"]["source"].as_str()), (Some("ខ្ញុំ"), Some("nida")));
+        // unknown text stays as typed, and the list ends in the layout and raw chips
+        assert_eq!(action("windows", KH_KEY_SPACE)["action"], "pass");
+        let v: Value =
+            serde_json::from_str(&take(kh_suggest(e, c("windows").as_ptr(), KH_MODE_AUTO, std::ptr::null()))).unwrap();
+        let kinds: Vec<&str> = v.as_array().unwrap().iter().map(|x| x["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["layout", "raw"]);
+        kh_engine_free(e);
+    }
+}
+
+#[test]
+fn open_with_mapping_reads_the_charts_from_a_file() {
+    unsafe {
+        let r = root();
+        let p = |f: &str| c(r.join(f).to_str().unwrap());
+        let (d, l, en) = (p("data/data.json"), p("data/lexicon.json"), p("data/english.json"));
+        let m = p("tests/golden/mapping_custom.json");
+        let e = kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), m.as_ptr());
+        assert!(!e.is_null(), "{:?}", err());
+        // the custom charts write a final ប as B, so `leab` is a rule guess for លាប
+        let v: Value =
+            serde_json::from_str(&take(kh_suggest(e, c("leab").as_ptr(), KH_MODE_LATIN, std::ptr::null()))).unwrap();
+        assert_eq!(v[0]["word"], "លាប");
+        kh_engine_free(e);
+        // a missing or invalid mapping file is an error with a message, not a crash
+        let bad = p("data/data.json");
+        assert!(kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), bad.as_ptr()).is_null());
+        assert!(err().is_some());
+        let none = c("/no/such/mapping.json");
+        assert!(kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), none.as_ptr()).is_null());
+    }
+}

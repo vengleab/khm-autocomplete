@@ -1,5 +1,6 @@
 //! The Khmer layout table: spot checks against facts from the layout, and structural properties.
-use khcore::layout::{key_for, map, KeyCode, KEYS};
+mod common;
+use khcore::layout::{from_ascii, key_for, map, read_ascii, KeyCode, KEYS, SHIFTED_US};
 use std::collections::HashSet;
 
 fn us(c: char, shift: bool) -> Option<&'static str> {
@@ -99,4 +100,47 @@ fn table_is_well_formed() {
     for c in '\u{1780}'..='\u{17A2}' {
         assert!(typed.contains(&c), "consonant {c} is not on the keyboard");
     }
+}
+
+#[test]
+fn from_ascii_reads_us_keys() {
+    // letters and unshifted symbols: the normal level; capitals and shifted symbols: the Shift level
+    assert_eq!(from_ascii('k'), Some("ក"));
+    assert_eq!(from_ascii('K'), Some("គ"));
+    assert_eq!(from_ascii('1'), Some("១"));
+    assert_eq!(from_ascii('!'), Some("!")); // Shift+1 on the Khmer layout is "!" itself
+    assert_eq!(from_ascii('@'), Some("ៗ")); // Shift+2
+    assert_eq!(from_ascii('.'), Some("។"));
+    assert_eq!(from_ascii('>'), Some("៕")); // Shift+.
+    assert_eq!(from_ascii('?'), Some("?")); // Shift+/
+    assert_eq!(from_ascii('"'), Some("៉")); // Shift+'
+    assert_eq!(from_ascii('#'), Some("\"")); // Shift+3
+    assert_eq!(from_ascii('J'), Some("ញ"));
+    // not a key: whitespace, control and non-ASCII characters
+    assert_eq!(from_ascii(' '), None);
+    assert_eq!(from_ascii('\n'), None);
+    assert_eq!(from_ascii('ក'), None);
+    assert_eq!(read_ascii("xjJuM").as_deref(), Some("ខ្ញុំ"));
+    assert_eq!(read_ascii("a b"), None);
+    // every Shift pair names a key of the table, and every printable ASCII character has a reading
+    for (shifted, base) in SHIFTED_US {
+        assert!(key_for(KeyCode::Us(base)).is_some(), "{shifted} -> {base}");
+    }
+    for c in '!'..='~' {
+        assert!(from_ascii(c).is_some(), "{c} has no reading");
+    }
+}
+
+/// The NIDA constant in web/template.html (what the JS reference reads) is the Rust table.
+/// Regenerate it with `cargo run -q -p khlayout --example js_table` and run `node tests/golden/gen.mjs`.
+#[test]
+fn js_nida_table_equals_the_layout_crate() {
+    let g = common::golden("tables.json");
+    let js = g["nida"].as_object().expect("tables.json has no nida table: run node tests/golden/gen.mjs");
+    for c in '!'..='~' {
+        let want = from_ascii(c);
+        let got = js.get(&c.to_string()).map(|v| v.as_str().unwrap());
+        assert_eq!(got, want, "NIDA[{c:?}] in the JS reference differs from khlayout::from_ascii");
+    }
+    assert_eq!(js.len(), ('!'..='~').filter(|c| from_ascii(*c).is_some()).count());
 }

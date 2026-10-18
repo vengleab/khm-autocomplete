@@ -9,10 +9,9 @@ license = "MIT OR Apache-2.0"
 name = "khtsf"
 crate-type = ["cdylib", "rlib"]
 
-# No khcore here on purpose: the DLL is loaded into every app and must stay small. It links the key layout table
-# (tiny, no dependencies) so Khmer typing still works when the engine process is not running.
+# No khcore here on purpose: the DLL is loaded into every app and must stay small. Keys are never remapped, so it
+# needs no layout table either: it passes keys through and asks the engine process about Space / Enter / Tab.
 [dependencies]
-khlayout = { path = "../../layout" }
 khipc = { path = "../ipc" }
 
 [target.'cfg(windows)'.dependencies]

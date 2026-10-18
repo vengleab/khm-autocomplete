@@ -14,7 +14,8 @@ fn out(c: &Candidate) -> Out<'_> {
     Out { c, gain: Engine::keystroke_gain(c) }
 }
 
-/// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`
+/// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`; Auto mode adds
+/// `"source"` ("khmerlish" | "english" | "nida" | "raw") and the kinds `"layout"` and `"raw"`.
 pub fn candidates(list: &[Candidate]) -> String {
     serde_json::to_string(&list.iter().map(out).collect::<Vec<_>>()).expect("candidates serialize")
 }

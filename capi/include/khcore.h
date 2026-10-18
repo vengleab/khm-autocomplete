@@ -23,6 +23,12 @@
 // Input mode: English words, Khmer suggestions (needs an engine opened with an English glossary).
 #define KH_MODE_ENGLISH 2
 
+// Input mode: the one Khmer state. The keys are not remapped; the engine reads the pending run of ASCII as Khmerlish,
+// English, or keys of the Khmer (NiDA) layout, and Khmer script (from the OS keyboard) as usual. Candidates then carry
+// a `source` ("khmerlish" | "english" | "nida" | "raw"), and each has its own `replace` / `replace_len_utf16`.
+// Needs an engine opened with an English glossary for the English reading. Added without an ABI bump (new value only).
+#define KH_MODE_AUTO 3
+
 // Key: Space.
 #define KH_KEY_SPACE 0
 
@@ -59,6 +65,13 @@ struct KhEngine *kh_engine_open_with_english(const char *data_path,
                                              const char *lexicon_path,
                                              const char *english_path);
 
+// Like `kh_engine_open_with_english`, plus `mapping.json` (the consonant / vowel charts edited in the admin pages).
+// Returns NULL on failure. A compiled `khdata.bin` carries its mapping inside, so products need no extra file.
+struct KhEngine *kh_engine_open_with_mapping(const char *data_path,
+                                             const char *lexicon_path,
+                                             const char *english_path,
+                                             const char *mapping_path);
+
 // Open an engine from a compiled `khdata.bin` made by `khbuild`. Returns NULL on failure.
 struct KhEngine *kh_engine_open_compiled(const char *path);
 
@@ -70,8 +83,9 @@ struct KhEngine *kh_engine_open_compiled_bytes(const uint8_t *bytes,
 void kh_engine_free(struct KhEngine *engine);
 
 // Candidates for the text before the caret, as a JSON array (best first, at most 8):
-// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`.
-// In Latin and English modes `roman` is the Latin spelling / the matched English gloss.
+// `[{"word","kind","replace","replace_len_utf16","append","prob","roman","why","gain"}, ...]`; in Auto mode
+// each candidate also has `"source"`, and `kind` can be `"layout"` (the keys read as Khmer) or `"raw"` (as typed).
+// In Latin, English and Auto modes `roman` is the Latin spelling / the matched English gloss / a source label.
 // `mode` is `KH_MODE_*`. `just_accepted` is the word the user just accepted, or NULL (see Engine::suggest).
 char *kh_suggest(const struct KhEngine *engine,
                  const char *text_before_caret,
@@ -88,7 +102,7 @@ char *kh_key_action(const struct KhEngine *engine,
                     int32_t key,
                     const char *just_accepted);
 
-// What a physical key types in Khmer-script mode (Khmer NiDA layout), as a UTF-8 string, or NULL when the key
+// What a physical key types on the Khmer (NiDA) layout, as a UTF-8 string, or NULL when the key
 // is not part of the layout (not an error: let the key through). `kind` is `KH_KEYCODE_*`; `shift` and `altgr`
 // (right Alt on Windows, Option on macOS) are 0 or 1. Space is not part of the layout; see core/src/layout.rs.
 char *kh_layout_map(int32_t kind,

@@ -28,7 +28,7 @@ pub const MAX_FRAME: usize = 64 * 1024;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Ping,
-    /// candidates for the text before the caret; `mode`: 0 Khmer, 1 Latin, 2 English
+    /// candidates for the text before the caret; `mode`: 0 Khmer, 1 Latin, 2 English, 3 Auto
     Suggest {
         text: String,
         mode: u8,
@@ -70,6 +70,8 @@ pub struct Candidate {
     pub prob: Option<f64>,
     pub roman: Option<String>,
     pub why: Option<String>,
+    /// Auto mode: which reading produced it ("khmerlish", "english", "nida", "raw"); absent in the other modes
+    pub source: Option<String>,
     pub gain: usize,
 }
 

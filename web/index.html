@@ -143,6 +143,7 @@
   .rm { display: block; font: 400 0.68rem/1.2 var(--font-mono); color: var(--muted); }
   .mono { font-family: var(--font-mono); font-size: 0.85rem; }
   .chip.rule { border-style: dotted; border-color: var(--accent); background: var(--surface); }
+  .chip.pick { border-style: dashed; border-color: var(--accent); background: var(--surface); }
   .bar.rl { background: var(--muted); }
   details.ref summary { cursor: pointer; font: 600 0.72rem var(--font-ui); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
   details.ref[open] summary { margin-bottom: 10px; }
@@ -162,25 +163,27 @@
 <div class="wrap">
   <header>
     <h1><span class="kh-title">ខ្មែរ</span>Khmer Autocomplete</h1>
-    <p>Type Khmer script, or type Khmer in Latin letters (Khmerlish) and convert it. Suggestions complete the word you are typing and predict the next one.</p>
+    <p>One Khmer state that works out what you typed: Khmer script, Khmerlish (Latin letters), an English word, or keys of the Khmer (NiDA) layout. Suggestions complete the word you are typing and predict the next one.</p>
   </header>
 
   <div class="grid">
     <div class="col">
       <section class="card editor" aria-label="Writing area">
         <div class="modes" role="group" aria-label="Input mode">
-          <button type="button" class="mode" id="m-khmer" aria-pressed="true"><span class="kh">ខ្មែរ</span> Khmer script</button>
+          <button type="button" class="mode" id="m-khmer" aria-pressed="false"><span class="kh">ខ្មែរ</span> Khmer script</button>
           <button type="button" class="mode" id="m-latin" aria-pressed="false">Latin input<span class="sub">Khmerlish</span></button>
           <button type="button" class="mode" id="m-english" aria-pressed="false">English<span class="sub">→ Khmer</span></button>
+          <button type="button" class="mode" id="m-auto" aria-pressed="true">Auto<span class="sub">reads any of them</span></button>
         </div>
         <label for="text" class="sr" style="position:absolute;left:-9999px">Khmer text</label>
         <textarea id="text" lang="km" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="វាយអក្សរខ្មែរនៅទីនេះ…"></textarea>
         <div class="strip" id="strip" role="listbox" aria-label="Suggestions"></div>
         <div class="hint">
-          <span id="hint-khmer"><kbd>Tab</kbd> accepts the first suggestion</span>
+          <span id="hint-auto">Just type: Khmerlish, an English word, or Khmer-layout keys. <kbd>Space</kbd> converts a sure match, <kbd>Tab</kbd> takes the first suggestion, or pick <b>Khmer (NiDA)</b> / <b>English</b> yourself.</span>
+          <span id="hint-khmer" hidden><kbd>Tab</kbd> accepts the first suggestion</span>
           <span id="hint-latin" hidden>Type Khmer in Latin letters, then press <kbd>Space</kbd> to convert the word. <kbd>Tab</kbd> picks the first suggestion.</span>
           <span id="hint-english" hidden>Type an English word, then press <kbd>Space</kbd> to turn it into Khmer. <kbd>Tab</kbd> picks the first suggestion.</span>
-          <span class="legend" id="legend"><i class="l-c">word</i>completes · <i class="l-n">word</i>next word · <i class="l-f">~word</i>typo fix</span>
+          <span class="legend" id="legend" hidden><i class="l-c">word</i>completes · <i class="l-n">word</i>next word · <i class="l-f">~word</i>typo fix</span>
         </div>
       </section>
 
@@ -786,6 +789,107 @@ const EN = {
   "អូន": "younger sibling, darling"
 }
 ;      // Khmer word -> English glosses, comma separated (data/english.json)
+const MAP = {
+ "version": 1,
+ "consonants": [
+  {"letter": "ក", "series": "A", "onset": "k", "final": "k", "toA": false, "toO": false},
+  {"letter": "ខ", "series": "A", "onset": "kh", "final": "k", "toA": false, "toO": false},
+  {"letter": "គ", "series": "O", "onset": "k", "final": "k", "toA": false, "toO": false},
+  {"letter": "ឃ", "series": "O", "onset": "kh", "final": "k", "toA": false, "toO": false},
+  {"letter": "ង", "series": "O", "onset": "ng", "final": "ng", "toA": true, "toO": false},
+  {"letter": "ច", "series": "A", "onset": "ch", "final": "ch", "toA": false, "toO": false},
+  {"letter": "ឆ", "series": "A", "onset": "chh", "final": "ch", "toA": false, "toO": false},
+  {"letter": "ជ", "series": "O", "onset": "ch", "final": "ch", "toA": false, "toO": false},
+  {"letter": "ឈ", "series": "O", "onset": "chh", "final": "ch", "toA": false, "toO": false},
+  {"letter": "ញ", "series": "O", "onset": "nh", "final": "nh", "toA": true, "toO": false},
+  {"letter": "ដ", "series": "A", "onset": "d", "final": "t", "toA": false, "toO": false},
+  {"letter": "ឋ", "series": "A", "onset": "th", "final": "t", "toA": false, "toO": false},
+  {"letter": "ឌ", "series": "O", "onset": "d", "final": "t", "toA": false, "toO": false},
+  {"letter": "ឍ", "series": "O", "onset": "th", "final": "t", "toA": false, "toO": false},
+  {"letter": "ណ", "series": "O", "onset": "n", "final": "n", "toA": true, "toO": false},
+  {"letter": "ត", "series": "A", "onset": "t", "final": "t", "toA": false, "toO": false},
+  {"letter": "ថ", "series": "A", "onset": "th", "final": "t", "toA": false, "toO": false},
+  {"letter": "ទ", "series": "O", "onset": "t", "final": "t", "toA": false, "toO": false},
+  {"letter": "ធ", "series": "O", "onset": "th", "final": "t", "toA": false, "toO": false},
+  {"letter": "ន", "series": "O", "onset": "n", "final": "n", "toA": true, "toO": false},
+  {"letter": "ប", "series": "A", "onset": "b", "final": "p", "toA": false, "toO": true},
+  {"letter": "ផ", "series": "A", "onset": "ph", "final": "p", "toA": false, "toO": false},
+  {"letter": "ព", "series": "O", "onset": "p", "final": "p", "toA": false, "toO": false},
+  {"letter": "ភ", "series": "O", "onset": "ph", "final": "p", "toA": false, "toO": false},
+  {"letter": "ម", "series": "O", "onset": "m", "final": "m", "toA": true, "toO": false},
+  {"letter": "យ", "series": "O", "onset": "y", "final": "y", "toA": true, "toO": false},
+  {"letter": "រ", "series": "O", "onset": "r", "final": "", "toA": true, "toO": false},
+  {"letter": "ល", "series": "O", "onset": "l", "final": "l", "toA": true, "toO": false},
+  {"letter": "វ", "series": "O", "onset": "v", "final": "v", "toA": true, "toO": false},
+  {"letter": "ស", "series": "A", "onset": "s", "final": "s", "toA": false, "toO": true},
+  {"letter": "ហ", "series": "A", "onset": "h", "final": "h", "toA": false, "toO": true},
+  {"letter": "ឡ", "series": "A", "onset": "l", "final": "l", "toA": false, "toO": true},
+  {"letter": "អ", "series": "A", "onset": "", "final": "", "toA": false, "toO": true}
+ ],
+ "onsetExtra": [
+  {"latin": "g", "letters": "គ"},
+  {"latin": "j", "letters": "ចជ"},
+  {"latin": "c", "letters": "ចជ"},
+  {"latin": "ny", "letters": "ញ"},
+  {"latin": "w", "letters": "វ"},
+  {"latin": "q", "letters": "ក"}
+ ],
+ "vowels": [
+  {"sign": "", "A": ["a"], "O": ["o"]},
+  {"sign": "ា", "A": ["a", "aa"], "O": ["ea", "ia"]},
+  {"sign": "ិ", "A": ["e"], "O": ["i"]},
+  {"sign": "ី", "A": ["ei", "ey"], "O": ["i", "ii", "ee"]},
+  {"sign": "ឹ", "A": ["oe"], "O": ["oe", "u"]},
+  {"sign": "ឺ", "A": ["oeu", "eu"], "O": ["eu", "oeu"]},
+  {"sign": "ុ", "A": ["o"], "O": ["u"]},
+  {"sign": "ូ", "A": ["ou"], "O": ["ou", "u", "oo"]},
+  {"sign": "ួ", "A": ["uo", "ua"], "O": ["uo", "ua"]},
+  {"sign": "ើ", "A": ["aeu", "ae"], "O": ["eu", "oe"]},
+  {"sign": "ឿ", "A": ["oea"], "O": ["eua", "oea"]},
+  {"sign": "ៀ", "A": ["ie", "ia"], "O": ["ie", "ia"]},
+  {"sign": "េ", "A": ["e"], "O": ["e"]},
+  {"sign": "ែ", "A": ["ae"], "O": ["ae"]},
+  {"sign": "ៃ", "A": ["ai", "ay"], "O": ["ey", "ay", "ei"]},
+  {"sign": "ោ", "A": ["ao"], "O": ["o", "ou"]},
+  {"sign": "ៅ", "A": ["au", "aw"], "O": ["ov", "aw", "ow"]},
+  {"sign": "ុំ", "A": ["om"], "O": ["um"]},
+  {"sign": "ំ", "A": ["am"], "O": ["um"]},
+  {"sign": "ាំ", "A": ["am"], "O": ["oam", "eam"]},
+  {"sign": "ះ", "A": ["ah"], "O": ["eah", "ah"]}
+ ],
+ "finals": [
+  {"latin": "k", "letters": "ក"},
+  {"latin": "ng", "letters": "ង"},
+  {"latin": "ch", "letters": "ច"},
+  {"latin": "nh", "letters": "ញ"},
+  {"latin": "t", "letters": "តដទ"},
+  {"latin": "n", "letters": "នណ"},
+  {"latin": "p", "letters": "បព"},
+  {"latin": "m", "letters": "ម"},
+  {"latin": "y", "letters": "យ"},
+  {"latin": "l", "letters": "ល"},
+  {"latin": "v", "letters": "វ"},
+  {"latin": "s", "letters": "ស"},
+  {"latin": "h", "letters": "ហ"}
+ ],
+ "independent": [
+  {"letter": "ឥ", "latin": "e"},
+  {"letter": "ឦ", "latin": "ei"},
+  {"letter": "ឧ", "latin": "o"},
+  {"letter": "ឩ", "latin": "ou"},
+  {"letter": "ឪ", "latin": "au"},
+  {"letter": "ឫ", "latin": "rue"},
+  {"letter": "ឬ", "latin": "rue"},
+  {"letter": "ឭ", "latin": "rue"},
+  {"letter": "ឮ", "latin": "rue"},
+  {"letter": "ឯ", "latin": "ae"},
+  {"letter": "ឰ", "latin": "ai"},
+  {"letter": "ឱ", "latin": "ao"},
+  {"letter": "ឲ", "latin": "ao"},
+  {"letter": "ឳ", "latin": "au"}
+ ]
+}
+;    // the consonant / vowel charts (data/mapping.json, edited in admin/), or null for the built-in ones below
 
 /* ------------------------------------------------------------------ Khmer text */
 // Same rules as normalize() in build_data.py.
@@ -824,12 +928,12 @@ function clusters(s) {
 // The two transliteration charts, as data: consonants with their series, and what each vowel
 // sign sounds like after a first-series (A) or second-series (O) consonant. The first spelling
 // in each list is what the generator writes; the others are accepted when typing.
-const CONS = [["ក","A","k"],["ខ","A","kh"],["គ","O","k"],["ឃ","O","kh"],["ង","O","ng"],["ច","A","ch"],["ឆ","A","chh"],
+let CONS = [["ក","A","k"],["ខ","A","kh"],["គ","O","k"],["ឃ","O","kh"],["ង","O","ng"],["ច","A","ch"],["ឆ","A","chh"],
   ["ជ","O","ch"],["ឈ","O","chh"],["ញ","O","nh"],["ដ","A","d"],["ឋ","A","th"],["ឌ","O","d"],["ឍ","O","th"],["ណ","O","n"],
   ["ត","A","t"],["ថ","A","th"],["ទ","O","t"],["ធ","O","th"],["ន","O","n"],["ប","A","b"],["ផ","A","ph"],["ព","O","p"],
   ["ភ","O","ph"],["ម","O","m"],["យ","O","y"],["រ","O","r"],["ល","O","l"],["វ","O","v"],["ស","A","s"],["ហ","A","h"],
   ["ឡ","A","l"],["អ","A",""]];
-const VOW = [
+let VOW = [
   { s: "",  A: ["a"],           O: ["o"] },                 // inherent vowel: ក ka, គ ko
   { s: "ា", A: ["a", "aa"],     O: ["ea", "ia"] },           // ក+ា ka, គ+ា kea
   { s: "ិ", A: ["e"],           O: ["i"] },
@@ -852,12 +956,12 @@ const VOW = [
   { s: "ាំ", A: ["am"],         O: ["oam", "eam"] },
   { s: "ះ", A: ["ah"],          O: ["eah", "ah"] },
 ];
-const SIGN = new Map(VOW.map(e => [e.s, e]));
+let SIGN = new Map(VOW.map(e => [e.s, e]));
 const VOWSIGNS = new Set("ាិីឹឺុូួើឿៀេែៃោៅ");
-const SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
-const ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
-const FINAL = {ក:"k",ខ:"k",គ:"k",ឃ:"k",ង:"ng",ច:"ch",ឆ:"ch",ជ:"ch",ឈ:"ch",ញ:"nh",ដ:"t",ឋ:"t",ឌ:"t",ឍ:"t",ណ:"n",ត:"t",ថ:"t",ទ:"t",ធ:"t",ន:"n",ប:"p",ផ:"p",ព:"p",ភ:"p",ម:"m",យ:"y",រ:"",ល:"l",វ:"v",ស:"s",ហ:"h",ឡ:"l",អ:""};
-const INDEP = {"ឥ":"e","ឦ":"ei","ឧ":"o","ឩ":"ou","ឪ":"au","ឫ":"rue","ឬ":"rue","ឭ":"rue","ឮ":"rue","ឯ":"ae","ឰ":"ai","ឱ":"ao","ឲ":"ao","ឳ":"au"};
+let SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
+let ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
+let FINAL = {ក:"k",ខ:"k",គ:"k",ឃ:"k",ង:"ng",ច:"ch",ឆ:"ch",ជ:"ch",ឈ:"ch",ញ:"nh",ដ:"t",ឋ:"t",ឌ:"t",ឍ:"t",ណ:"n",ត:"t",ថ:"t",ទ:"t",ធ:"t",ន:"n",ប:"p",ផ:"p",ព:"p",ភ:"p",ម:"m",យ:"y",រ:"",ល:"l",វ:"v",ស:"s",ហ:"h",ឡ:"l",អ:""};
+let INDEP = {"ឥ":"e","ឦ":"ei","ឧ":"o","ឩ":"ou","ឪ":"au","ឫ":"rue","ឬ":"rue","ឭ":"rue","ឮ":"rue","ឯ":"ae","ឰ":"ai","ឱ":"ao","ឲ":"ao","ឳ":"au"};
 // Khmer word -> rough Latin spelling, used for words that have no hand-written spelling.
 function romanize(word) {
   const cs = clusters(word), n = cs.length; let out = "", open = false;
@@ -887,11 +991,29 @@ function romanize(word) {
 }
 // Latin syllable -> Khmer letters, following the same charts backwards. The vowel sound tells us
 // which series the consonant must be in, which picks the letter (k + "ea" can only be គ, never ក).
-const ONSET_LAT = {};
+let ONSET_LAT = {};
 CONS.forEach(([l, , lat]) => { if (lat) (ONSET_LAT[lat] = ONSET_LAT[lat] || []).push(l); });
 Object.assign(ONSET_LAT, { g: ["គ"], j: ["ច", "ជ"], c: ["ច", "ជ"], ny: ["ញ"], w: ["វ"], q: ["ក"] });
-const FINAL_LAT = { k:["ក"], ng:["ង"], ch:["ច"], nh:["ញ"], t:["ត","ដ","ទ"], n:["ន","ណ"], p:["ប","ព"], m:["ម"], y:["យ"], l:["ល"], v:["វ"], s:["ស"], h:["ហ"] };
-const TO_A = new Set("ងញនមយរលវណ"), TO_O = new Set("បសហអឡ");    // letters that can take a series-switching mark
+let FINAL_LAT = { k:["ក"], ng:["ង"], ch:["ច"], nh:["ញ"], t:["ត","ដ","ទ"], n:["ន","ណ"], p:["ប","ព"], m:["ម"], y:["យ"], l:["ល"], v:["វ"], s:["ស"], h:["ហ"] };
+let TO_A = new Set("ងញនមយរលវណ"), TO_O = new Set("បសហអឡ");    // letters that can take a series-switching mark
+// Replace the charts above with a mapping (the format of data/mapping.json, which admin/mapping.html edits). Call it before
+// building an Engine: the generated spellings and the rule guesses are made from these tables.
+function setMapping(m) {
+  CONS = m.consonants.map(c => [c.letter, c.series, c.onset]);
+  VOW = m.vowels.map(v => ({ s: v.sign, A: v.A, O: v.O }));
+  FINAL = Object.fromEntries(m.consonants.map(c => [c.letter, c.final]));
+  INDEP = Object.fromEntries(m.independent.map(x => [x.letter, x.latin]));
+  SIGN = new Map(VOW.map(e => [e.s, e]));
+  SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
+  ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
+  ONSET_LAT = {};
+  CONS.forEach(([l, , lat]) => { if (lat) (ONSET_LAT[lat] = ONSET_LAT[lat] || []).push(l); });
+  m.onsetExtra.forEach(x => { ONSET_LAT[x.latin] = Array.from(x.letters); });    // like Object.assign: an existing key keeps its place
+  FINAL_LAT = Object.fromEntries(m.finals.map(x => [x.latin, Array.from(x.letters)]));
+  TO_A = new Set(m.consonants.filter(c => c.toA).map(c => c.letter));
+  TO_O = new Set(m.consonants.filter(c => c.toO).map(c => c.letter));
+}
+if (MAP) setMapping(MAP);
 function compose(token, prior) {
   const t = token.toLowerCase().replace(/[^a-z]/g, ""), found = new Map();
   if (!t) return [];
@@ -954,6 +1076,21 @@ function enStems(k) {
   }
   if (k.endsWith("ly") && k.length > 4) add(k.slice(0, -2));
   return o;
+}
+
+/* ------------------------------------------------------- Auto: one Khmer state that reads the typed run several ways */
+// In Auto the keys are not remapped. ASCII lands in the text as typed (the pending "run") and the engine reads it as
+// Khmerlish, as English, and as keys of the Khmer (NiDA) layout, then merges the candidates.
+// NIDA: what the physical key that types an ASCII character on a US keyboard types on the Khmer layout (Shift level for
+// capitals and shifted symbols). Generated from the Rust table: cargo run -q -p khlayout --example js_table
+const NIDA = {"!":"!","\"":"៉","#":"\"","$":"៛","%":"%","&":"័","'":"់","(":"(",")":")","*":"៏","+":"=",",":"៼","-":"ឥ",".":"។","/":"៊","0":"០","1":"១","2":"២","3":"៣","4":"៤","5":"៥","6":"៦","7":"៧","8":"៨","9":"៩",":":"៾",";":"ើ","<":"៻","=":"ឲ",">":"៕","?":"?","@":"ៗ","A":"៿","B":"ព","C":"ជ","D":"ឌ","E":"ែ","F":"ធ","G":"អ","H":"ះ","I":"ី","J":"ញ","K":"គ","L":"ឡ","M":"ំ","N":"ណ","O":"ៅ","P":"ភ","Q":"ឈ","R":"ឬ","S":"ៃ","T":"ទ","U":"ូ","V":"៽","W":"ឺ","X":"ឃ","Y":"ួ","Z":"ឍ","[":"ៀ","\\":"ឮ","]":"ឪ","^":"៍","_":"៌","`":"«","a":"ា","b":"ប","c":"ច","d":"ដ","e":"េ","f":"ថ","g":"ង","h":"ហ","i":"ិ","j":"្","k":"ក","l":"ល","m":"ម","n":"ន","o":"ោ","p":"ផ","q":"ឆ","r":"រ","s":"ស","t":"ត","u":"ុ","v":"វ","w":"ឹ","x":"ខ","y":"យ","z":"ឋ","{":"ឿ","|":"ឭ","}":"ឧ","~":"»"};
+const AUTO_RUN = /[\x21-\x7e]+$/, AUTO_LATIN = /[A-Za-z'\-]+$/;
+const AUTO_RANK = { khmerlish: 0, english: 1, nida: 2, raw: 3 };
+const AUTO_KEEP = 4;          // with no real hit, at most this many weak candidates stay in front of the layout / raw chips
+function nidaRead(run) {
+  let out = "";
+  for (const ch of run) { const k = NIDA[ch]; if (k === undefined) return null; out += k; }
+  return normalize(out);
 }
 
 /* ---------------------------------------------------------------------- engine */
@@ -1084,7 +1221,50 @@ class Engine {
     out.sort((a, b) => a.tier - b.tier || (b.p || 0) - (a.p || 0));
     return out.slice(0, limit);
   }
-  suggest(ctx, limit = 8) {
+  // The run read as keys of the Khmer layout. Returns the reading (null when a key has none) and the candidates:
+  // tier 0.6 when the reading is made only of known words, tier 1 for completions of an unfinished last word.
+  nidaSuggest(run, ctx, limit = 8) {
+    const reading = nidaRead(run), out = [];
+    if (!reading || /^[0-9]+$/.test(run)) return { reading, out };          // digits never auto-convert
+    const a = this.analyze(reading);
+    if (a.tokens.join("") + a.partial !== reading) return { reading, out };  // a sentence mark split the reading
+    const toks = a.tokens.slice();
+    // a last piece that is itself a word counts as finished (the segmentation prefers the cheap tail for prefixes of longer words)
+    const rest = a.partial && !this.index.has(a.partial) ? a.partial : "";
+    if (a.partial && !rest) toks.push(a.partial);
+    if (toks.length && !rest && toks.every(t => this.index.has(t))) {
+      const w = this.index.get(toks[toks.length - 1]), prev = toks.length > 1 ? toks[toks.length - 2] : ctx.prev;
+      out.push({ w, word: reading, kind: "exact", tier: 0.6, p: this.prob(w, this.row(prev)), rom: "NiDA", replace: run });
+    }
+    if (a.partial) {
+      const head = a.tokens.join(""), prev = a.tokens.length ? a.tokens[a.tokens.length - 1] : ctx.prev;
+      for (const c of this.suggest({ prev, partial: a.partial, tokens: a.tokens }, limit, true))
+        out.push({ w: c.w, word: head + c.word, kind: "prefix", tier: 1, p: c.p, rom: "NiDA", replace: run });
+    }
+    return { reading, out };
+  }
+  // The pending run read three ways and merged: Khmerlish and English on its trailing letters, NiDA on all of it. Each
+  // candidate carries the text it replaces (`replace`) and where it came from (`source`).
+  autoSuggest(run, ctx, limit = 8) {
+    if (!run) return [];
+    const lat = (AUTO_LATIN.exec(run) || [""])[0], all = [];
+    if (lat) {
+      for (const c of this.romSuggest(lat, ctx, limit)) all.push({ ...c, source: "khmerlish" });
+      for (const c of this.enSuggest(lat, ctx, limit)) all.push({ ...c, source: "english" });
+    }
+    const n = this.nidaSuggest(run, ctx, limit);
+    for (const c of n.out) all.push({ ...c, source: "nida" });
+    all.sort((a, b) => a.tier - b.tier || AUTO_RANK[a.source] - AUTO_RANK[b.source] || (b.p || 0) - (a.p || 0));
+    const seen = new Set(), merged = [];
+    for (const c of all) if (!seen.has(c.word)) { seen.add(c.word); merged.push(c); }
+    if (merged.some(c => c.tier < 2)) return merged.slice(0, limit);
+    // nothing matched: let the user pick the keys as Khmer (NiDA reading) or keep them as English
+    const out = merged.slice(0, AUTO_KEEP);
+    if (n.reading) out.push({ w: -1, word: n.reading, kind: "layout", tier: 3, p: null, rom: "NiDA", replace: run, source: "nida" });
+    out.push({ w: -1, word: run, kind: "raw", tier: 3, p: null, rom: "English", replace: run, source: "raw" });
+    return out;
+  }
+  suggest(ctx, limit = 8, completeOnly = false) {
     const prev = ctx.prev, row = this.row(prev), seen = new Set(), out = [];
     const push = (w, kind) => { if (seen.has(w)) return; seen.add(w); out.push({ w, word: this.words[w], kind, p: this.prob(w, row) }); };
     if (!ctx.partial) {
@@ -1095,6 +1275,7 @@ class Engine {
     this.withPrefix(ctx.partial).forEach(w => { if (this.words[w] !== ctx.partial) push(w, "complete"); });
     out.sort((a, b) => b.p - a.p);
     let res = out.slice(0, limit);
+    if (completeOnly) return res;
     // The typed text may already be a whole word: then offer the words that usually follow it.
     const exact = this.index.get(ctx.partial);
     if (exact !== undefined) {
@@ -1129,14 +1310,39 @@ function lev(a, b) {
   return prev[n];
 }
 
+// Auto mode, the part of refresh() and of the key handling that needs no DOM (so the golden vectors run it as it is).
+// `text` is the text before the caret; `completedWord` the word just accepted while the caret has not moved, or null.
+function autoResolve(E, text, completedWord) {
+  const before = normalize(text), run = completedWord == null ? (AUTO_RUN.exec(before) || [""])[0] : "";
+  if (!run) {      // text ends in Khmer (or in a word just accepted): the Khmer-script path, which is what the OS keyboard needs
+    const ctx = completedWord != null ? { prev: completedWord, partial: "", tokens: E.analyze(before).tokens } : E.analyze(before);
+    return { before, run, ctx, current: E.suggest(ctx) };
+  }
+  const ctx = E.analyze(before.slice(0, before.length - run.length));
+  if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ""; }
+  ctx.token = run;
+  return { before, run, ctx, current: E.autoSuggest(run, ctx) };
+}
+// What Space / Enter / Tab take in Auto mode: the candidate to insert, or null to let the key through.
+// Space converts only a confident top (tier < 1: exact Khmerlish, exact English, a NiDA reading made of known words).
+// Enter takes a real candidate of a pending run, never a layout / raw chip. Tab takes the top, except a raw chip.
+function autoKey(E, text, key, completedWord) {
+  const r = autoResolve(E, text, key === "space" ? null : completedWord), top = r.current[0];
+  if (!top) return null;
+  if (key === "space") return r.run && top.tier < 1 ? top : null;
+  if (key === "enter") return r.run && top.kind !== "layout" && top.kind !== "raw" ? top : null;
+  return top.kind === "raw" ? null : top;
+}
+
 /* -------------------------------------------------------------------------- UI */
 const $ = id => document.getElementById(id);
 const ta = $("text");
 // The engine behind the UI. web/index-wasm.html sets window.KH_MAKE_ENGINE to the Rust engine (WebAssembly);
 // the plain page uses the JS engine above, which stays the reference the Rust port is tested against.
 const makeEngine = window.KH_MAKE_ENGINE || (d => new Engine(d));
-let engine = makeEngine(SEED), saved = 0, completed = null, composing = false, current = [], mode = "khmer", typing = 0;
+let engine = makeEngine(SEED), saved = 0, completed = null, composing = false, current = [], mode = "auto", typing = 0;
 const LATIN = /[A-Za-z'\-]+$/;
+const completedWord = pos => (completed && completed.pos === pos ? completed.word : null);
 
 function esc(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 function caret() { return document.activeElement === ta ? ta.selectionStart : ta.value.length; }
@@ -1144,6 +1350,12 @@ function caret() { return document.activeElement === ta ? ta.selectionStart : ta
 function refresh() {
   if (composing) return;
   const pos = caret(), before = normalize(ta.value.slice(0, pos));
+  if (mode === "auto") {
+    if (!completedWord(pos)) completed = null;
+    const r = autoResolve(engine, ta.value.slice(0, pos), completedWord(pos));
+    current = r.current; r.ctx.before = r.before; r.ctx.pos = pos;
+    return render(r.ctx);
+  }
   const tok = mode !== "khmer" && !(completed && completed.pos === pos) ? (LATIN.exec(before) || [""])[0] : "";
   let ctx;
   if (tok) {
@@ -1164,12 +1376,12 @@ function render(ctx) {
   const strip = $("strip");
   strip.innerHTML = "";
   const shown = current.slice(0, 6);
-  if (!shown.length) strip.innerHTML = ctx.token ? '<span class="empty">' + (mode === "english" ? "No Khmer word is glossed with that English word yet." : "No Khmer word sounds like that yet. Check the spelling or load a bigger data file.") + "</span>" : '<span class="empty">No suggestions for this spelling. Keep typing or load a bigger data file.</span>';
+  if (!shown.length) strip.innerHTML = ctx.token ? '<span class="empty">' + (mode === "auto" ? "Nothing matches these keys yet." : mode === "english" ? "No Khmer word is glossed with that English word yet." : "No Khmer word sounds like that yet. Check the spelling or load a bigger data file.") + "</span>" : '<span class="empty">No suggestions for this spelling. Keep typing or load a bigger data file.</span>';
   shown.forEach((c, i) => {
     const b = document.createElement("button");
     b.type = "button"; b.setAttribute("role", "option");
-    b.className = "chip" + (i === 0 && c.kind !== "fuzzy" && c.kind !== "rule" ? " first" : "") + (c.kind === "fuzzy" ? " fuzzy" : "") + (c.kind === "rule" ? " rule" : "");
-    b.innerHTML = (c.kind === "fuzzy" ? "~" : "") + esc(c.word) + (c.rom ? ' <span class="rom">' + esc(c.rom) + "</span>" : c.kind === "next" ? ' <span class="tag">next</span>' : c.kind === "common" ? ' <span class="tag">common</span>' : "");
+    b.className = "chip" + (i === 0 && c.kind !== "fuzzy" && c.kind !== "rule" && c.kind !== "layout" && c.kind !== "raw" ? " first" : "") + (c.kind === "fuzzy" ? " fuzzy" : "") + (c.kind === "rule" ? " rule" : "") + (c.kind === "layout" || c.kind === "raw" ? " pick" : "");
+    b.innerHTML = (c.kind === "fuzzy" ? "~" : "") + esc(c.word) + (c.kind === "layout" ? ' <span class="rom">Khmer (NiDA)</span>' : c.kind === "raw" ? ' <span class="rom">English</span>' : c.rom ? ' <span class="rom">' + esc(c.rom) + "</span>" : c.kind === "next" ? ' <span class="tag">next</span>' : c.kind === "common" ? ' <span class="tag">common</span>' : "");
     b.addEventListener("mousedown", e => e.preventDefault());
     b.addEventListener("click", () => accept(c));
     strip.appendChild(b);
@@ -1177,16 +1389,16 @@ function render(ctx) {
 
   const toks = ctx.tokens || [];
   const segHtml = toks.map(esc).join('<span class="sep">|</span>') + (ctx.partial ? (toks.length ? '<span class="sep">|</span>' : "") + "<b>" + esc(ctx.partial) + "</b>" : "");
-  $("l-seg").textContent = ctx.token ? (mode === "english" ? "English key" : "Sound key") : "Segmented";
-  $("l-part").textContent = ctx.token ? (mode === "english" ? "English word" : "Latin word") : "Typing";
-  $("c-seg").innerHTML = ctx.token ? '<span class="mono">' + esc(mode === "english" ? enKey(ctx.token) : romKey(ctx.token)) + "</span>" : segHtml || "–";
+  $("l-seg").textContent = ctx.token ? (mode === "auto" ? "NiDA reading" : mode === "english" ? "English key" : "Sound key") : "Segmented";
+  $("l-part").textContent = ctx.token ? (mode === "auto" ? "Typed run" : mode === "english" ? "English word" : "Latin word") : "Typing";
+  $("c-seg").innerHTML = ctx.token ? (mode === "auto" ? '<span class="kh">' + esc(nidaRead(ctx.token) || "–") + "</span>" : '<span class="mono">' + esc(mode === "english" ? enKey(ctx.token) : romKey(ctx.token)) + "</span>") : segHtml || "–";
   $("c-prev").textContent = ctx.prev === "^" ? "(start of sentence)" : ctx.prev;
   $("c-part").textContent = ctx.token || ctx.partial || "(nothing yet: predicting next word)";
 
   const top = current.slice(0, 8), max = Math.max(...top.map(c => c.p), 1e-9);
   $("cands").innerHTML = top.length
     ? '<table class="cand"><thead><tr><th>Word</th><th>Type</th><th style="text-align:right">P(w | prev)</th></tr></thead><tbody>' +
-      top.map(c => `<tr><td class="w">${esc(c.word)}${c.rom ? '<span class="rm">' + esc(c.why || c.rom) + "</span>" : ""}</td><td class="k">${c.kind}<span class="bar${c.kind === "fuzzy" ? " fz" : c.kind === "rule" ? " rl" : ""}" style="width:${Math.max(4, ((c.p || 0) / max) * 100)}%"></span></td><td class="p">${c.p === null ? "–" : (c.p * 100).toFixed(1) + "%"}</td></tr>`).join("") +
+      top.map(c => `<tr><td class="w">${esc(c.word)}${c.rom ? '<span class="rm">' + esc(c.why || c.rom) + "</span>" : ""}</td><td class="k">${c.kind}${c.source ? " · " + c.source : ""}<span class="bar${c.kind === "fuzzy" ? " fz" : c.kind === "rule" ? " rl" : ""}" style="width:${Math.max(4, ((c.p || 0) / max) * 100)}%"></span></td><td class="p">${c.p === null ? "–" : (c.p * 100).toFixed(1) + "%"}</td></tr>`).join("") +
       "</tbody></table>"
     : '<p class="none">Nothing to rank yet.</p>';
 }
@@ -1208,6 +1420,15 @@ function accept(c) {
 // Latin mode: a space converts the Latin word before it into the best Khmer match.
 function commitLatin() {
   const pos = ta.selectionStart, before = ta.value.slice(0, pos - 1), after = ta.value.slice(pos);
+  if (mode === "auto") {
+    // each candidate has its own span: Khmerlish and English replace the trailing letters, NiDA the whole run
+    const c = autoKey(engine, before, "space", null); if (!c) return false;
+    const nb = normalize(before), keep = nb.slice(0, nb.length - c.replace.length);
+    ta.value = keep + c.word + after;
+    const np = keep.length + c.word.length; ta.setSelectionRange(np, np);
+    completed = { pos: np, word: c.word };
+    return true;
+  }
   const m = LATIN.exec(before); if (!m) return false;
   const pre = normalize(before.slice(0, before.length - m[0].length));
   const ctx = engine.analyze(pre);
@@ -1232,6 +1453,12 @@ ta.addEventListener("compositionstart", () => (composing = true));
 ta.addEventListener("compositionend", () => { composing = false; completed = null; refresh(); });
 ta.addEventListener("keydown", e => {
   if (composing || !current.length) return;
+  if (mode === "auto") {
+    const key = e.key === "Tab" && !e.shiftKey ? "tab" : e.key === "Enter" ? "enter" : "";
+    const c = key && autoKey(engine, ta.value.slice(0, caret()), key, completedWord(caret()));
+    if (c) { e.preventDefault(); accept(c); }
+    return;
+  }
   const pending = mode !== "khmer" && LATIN.test(ta.value.slice(0, caret()));
   if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && pending)) { e.preventDefault(); accept(current[0]); }
 });
@@ -1239,7 +1466,8 @@ ta.addEventListener("keydown", e => {
 /* samples and modes */
 const SAMPLES = { khmer: ["ខ្ញុំ ចូលចិត្ត ", "ស្រ", "ប្រ", "តើ អ្នក ", "ខ្ញុំចង់ញ៉ាំប", "ស្រលាញ"],
                   latin: ["knhom chong nham bay ", "sok sabay te ", "orkun ", "sralanh ", "phnom penh ", "bong tov na "],
-                  english: ["water ", "i love cambodia ", "good morning ", "eating rice ", "teacher ", "thank you "] };
+                  english: ["water ", "i love cambodia ", "good morning ", "eating rice ", "teacher ", "thank you "],
+                  auto: ["knhom chong nham bay ", "i love cambodia ", "xjJuM ", "ខ្ញុំ chong ", "hello,water ", "windows "] };
 // Latin samples are typed out letter by letter so the conversion is visible.
 function typeLatin(str) {
   const id = ++typing; ta.value = ""; completed = null; ta.focus(); refresh();
@@ -1268,16 +1496,17 @@ function buildSamples() {
 }
 function setMode(m) {
   mode = m; typing++; completed = null;
-  $("m-khmer").setAttribute("aria-pressed", m === "khmer"); $("m-latin").setAttribute("aria-pressed", m === "latin"); $("m-english").setAttribute("aria-pressed", m === "english");
-  $("kbcard").hidden = m !== "khmer";
-  $("hint-khmer").hidden = m !== "khmer"; $("legend").hidden = m !== "khmer"; $("hint-latin").hidden = m !== "latin"; $("hint-english").hidden = m !== "english";
-  ta.placeholder = m === "latin" ? "Type Khmer in Latin letters, e.g. knhom chong nham bay" : m === "english" ? "Type English words, e.g. water, teacher, good morning" : "វាយអក្សរខ្មែរនៅទីនេះ…";
-  ta.value = m === "khmer" ? "ខ្ញុំ ចូលចិត្ត " : "";
+  for (const k of ["khmer", "latin", "english", "auto"]) $("m-" + k).setAttribute("aria-pressed", m === k);
+  $("kbcard").hidden = m !== "khmer" && m !== "auto";
+  $("hint-khmer").hidden = m !== "khmer"; $("legend").hidden = m !== "khmer" && m !== "auto"; $("hint-latin").hidden = m !== "latin"; $("hint-english").hidden = m !== "english"; $("hint-auto").hidden = m !== "auto";
+  ta.placeholder = m === "auto" ? "Type Khmer, Khmerlish (knhom chong), English (water) or layout keys" : m === "latin" ? "Type Khmer in Latin letters, e.g. knhom chong nham bay" : m === "english" ? "Type English words, e.g. water, teacher, good morning" : "វាយអក្សរខ្មែរនៅទីនេះ…";
+  ta.value = m === "khmer" || m === "auto" ? "ខ្ញុំ ចូលចិត្ត " : "";
   buildSamples(); refresh();
 }
 $("m-khmer").addEventListener("click", () => setMode("khmer"));
 $("m-latin").addEventListener("click", () => setMode("latin"));
 $("m-english").addEventListener("click", () => setMode("english"));
+$("m-auto").addEventListener("click", () => setMode("auto"));
 
 /* reference tables, generated from the same data the engine uses */
 (function () {
@@ -1348,7 +1577,7 @@ $("file").addEventListener("change", e => {
 });
 
 ta.value = "ខ្ញុំ ចូលចិត្ត ";
-buildSamples(); showStats(); refresh();
+setMode(mode); showStats();
 </script>
 
 </body></html>
