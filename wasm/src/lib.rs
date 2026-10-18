@@ -61,10 +61,17 @@ pub struct WasmEngine {
 
 #[wasm_bindgen]
 impl WasmEngine {
-    /// Build from the text of `data.json` and `lexicon.json`, and optionally `english.json` (English -> Khmer).
+    /// Build from the text of `data.json` and `lexicon.json`, and optionally `english.json` (English -> Khmer) and
+    /// `mapping.json` (the consonant / vowel charts; built-in charts when absent).
     #[wasm_bindgen(constructor)]
-    pub fn new(data_json: &str, lexicon_json: &str, english_json: Option<String>) -> Result<WasmEngine, JsError> {
-        let m = Model::from_json_with_english(data_json, lexicon_json, english_json.as_deref()).map_err(err)?;
+    pub fn new(
+        data_json: &str,
+        lexicon_json: &str,
+        english_json: Option<String>,
+        mapping_json: Option<String>,
+    ) -> Result<WasmEngine, JsError> {
+        let m = Model::from_json_full(data_json, lexicon_json, english_json.as_deref(), mapping_json.as_deref())
+            .map_err(err)?;
         Ok(WasmEngine { e: Engine::from_model(m) })
     }
 
@@ -128,7 +135,7 @@ impl WasmEngine {
 
     /// Rule-made spellings for a Latin token (`compose`), `[{word, why, score}]`.
     pub fn compose(&self, token: &str) -> String {
-        let v: Vec<_> = khcore::compose::compose(token, &self.e.model().prior)
+        let v: Vec<_> = khcore::compose::compose_with(&self.e.model().tables, token, &self.e.model().prior)
             .into_iter()
             .map(|c| serde_json::json!({"word": c.word, "why": c.why, "score": c.score}))
             .collect();

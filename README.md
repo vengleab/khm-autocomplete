@@ -7,6 +7,9 @@ typed Khmerlish, an English word, keys of the Khmer (NiDA) layout, or Khmer scri
 - Latin input (Khmerlish): type Khmer in Latin letters ("knhom chong nham bay"), press Space to convert each word to Khmer script.
 - English: type an English word ("water", "eating"), press Space to turn it into Khmer. Uses data/english.json, a small hand-written glossary.
 
+Admin pages (a local SQLite database and two web pages to edit the consonant / vowel mapping and the word dictionary):
+`python3 admin/server.py`, then open http://127.0.0.1:8765/ (see admin/README.md).
+
 Files
 - web/index.html    standalone demo (open in a browser; needs internet only for the Khmer web font)
 - data/data.json    frequency data built from seed_corpus.txt (277 words)

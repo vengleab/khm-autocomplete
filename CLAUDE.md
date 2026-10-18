@@ -35,19 +35,23 @@ web/         template.html (the demo = JS reference), build_demo.py -> index.htm
 tests/       check.mjs (Playwright, UI on the JS page and the WASM page, compares the suggestion strips)
              wasm-parity.mjs (golden vectors through the real .wasm in Node)    golden/  vectors generated from the JS reference
 scripts/     build-wasm.sh
+admin/       Local database + admin web pages (Python stdlib, SQLite): `server.py` (http://127.0.0.1:8765), `khdb.py` (database, export),
+             static/ (mapping.html, dictionary.html), default_mapping.json, test_admin.py. See admin/README.md.
 ```
 
 ## Commands
 - Rust tests (fast, debug):      `cargo test --workspace`
 - Rust tests incl. perf (release): `cargo test --release --workspace -- --nocapture`
 - Regenerate golden vectors:     `node tests/golden/gen.mjs`   (deterministic, ~4 min; output must not change unless the JS changed)
-- Compile data:                  `cargo run --release -p khcore --bin khbuild -- data/data.json data/lexicon.json khdata.bin data/english.json`
+- Compile data:                  `cargo run --release -p khcore --bin khbuild -- data/data.json data/lexicon.json khdata.bin data/english.json [data/mapping.json]`
 - Neural seam tests:             `cargo test -p khcore --features neural --test phase4`
 - Windows cross-check (Linux):   `cargo check -p khtsf -p khengine -p khipc --target x86_64-pc-windows-msvc` (also i686- and aarch64-)
 - macOS plist / Swift syntax:    `python3 mac/check-plist.py`; Swift syntax via tree-sitter-swift (type checking needs a Mac)
 - Memory check (fresh process):  `cargo run --release -p khcore --example perf -- gen 100000 /tmp/k.bin` then `... -- run /tmp/k.bin`
 - C API:                         `cargo test -p khcore-capi` and `sh capi/tests/c-smoke.sh [release]`; header: `sh capi/gen-header.sh` (`--check` in CI)
 - WASM build + all web tests:    `npm run test:wasm`  (= scripts/build-wasm.sh, build_demo.py --wasm, wasm-parity.mjs, check.mjs)
+- Admin pages:                   `python3 admin/server.py` (or `npm run admin`); tests: `npm run test:admin` (= python3 -m unittest discover -s admin + tests/admin-check.mjs)
+- Export admin data to data/*.json: `python3 admin/khdb.py export`   (then khbuild with `data/mapping.json` as the last argument)
 - Web demo build + test (JS only): `npm install && npm test`   (needs Playwright's Chromium; here: `CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm test`)
 - Rebuild data:                  `python3 data/build_data.py --segmented data/seed_corpus.txt -o data/data.json --min-count 1 --bigram-min 1 --source "Seed corpus (demo)"`
 - Real data:                     `pip install khmer-nltk` then `python3 data/build_data.py --wiki kmwiki-latest-pages-articles.xml.bz2 -o data/data.json` (the Wikipedia download is the owner's job)
@@ -79,6 +83,22 @@ Khmer (or a word just accepted) has no run: the Khmer-script path runs, which is
 - JS: `NIDA` (const, generated from the Rust table), `nidaRead`, `Engine.nidaSuggest` / `Engine.autoSuggest`, and the DOM-free
   `autoResolve(E, text, completedWord)` / `autoKey(E, text, key, completedWord)` live in the **engine part** of the template (the
   golden generator runs them as they are); the UI part only calls them.
+
+## The mapping (consonant / vowel charts as data) and the admin database
+- The series charts are data. `data/mapping.json` (format: `admin/default_mapping.json`, the built-in charts) lists consonants (series, onset,
+  final, can-take-៉/៊), vowel rows (readings after an A / O consonant), extra Latin onsets, Latin finals, independent vowels.
+  Rust: `tables::Tables` (`builtin()`, `from_json`, `to_json`), used by `romanize_with` / `compose_with`; `Model` owns the tables
+  (`Model::from_json_full(.., mapping)`); the compiled `khdata.bin` carries a non-default mapping in its meta JSON (`"mapping"`), the default
+  adds nothing (compiled files are byte-identical to before). JS: `MAP` (embedded by `build_demo.py`, `null` = the literals in the template)
+  and `setMapping(m)`, which reassigns `CONS`, `VOW`, `FINAL`, ... (these are `let`; call it before building an Engine).
+- `Tables::from_json` refuses a mapping the engine cannot use (a missing vowel sign, an empty reading, an unknown series, a final naming a
+  letter that is not a consonant): a mapping that loads never panics. `admin/khdb.py validate_mapping` applies the same rules.
+- Golden: `tests/golden/mapping_custom.json` (the default with a final ប spelled `b`, extra readings, new vowel rows, a replaced onset...) and
+  `engine_mapped.json` (romanize / latin / compose / auto under it); `core/tests/golden_mapping.rs` and `tests/wasm-parity.mjs` reproduce them.
+  They are built from `admin/default_mapping.json`, never from `data/mapping.json`, which Export overwrites.
+- `admin/` holds the SQLite database (`data/khmer.db`, not committed; created from data/*.json) and the two pages. Export writes the four JSON
+  files back, byte-identical when nothing changed. After exporting changed data, regenerate the golden vectors (the older ones read data/).
+  The pages run the JS reference engine (`/engine.js` = the engine part of the template, built from the database) for live "try it" panels.
 
 ## Input modes and the English glossary
 - `data/english.json` maps a Khmer word to comma-separated English glosses. **It is a hand-written draft** (273 of the 277 seed words; `តើ`, `ដ៏`,
@@ -141,7 +161,7 @@ Khmer (or a word just accepted) has no run: the Khmer-script path runs, which is
 - The web demo keeps the JS engine as default. `window.KH_MAKE_ENGINE` (set by `index-wasm.html`) swaps in the Rust engine. The engine part of
   template.html (what the golden generator evaluates) is untouched; only the UI section changed (engine factory, an "Engine:" label).
 - The plain `build_demo.py` run deletes `web/index-wasm.html`, so a stale WASM page can never pass the tests.
-- WASM size profile `wasm` (opt-level s, LTO, panic=abort): about 680 KB without wasm-opt.
+- WASM size profile `wasm` (opt-level s, LTO, panic=abort): about 745 KB without wasm-opt.
 - Probabilities: native tests allow 1e-12; the wasm test requires bit-identical doubles (it passes, 0 inexact). `Candidate.prob` is f32, so a
   consumer must compare it as f32 (`Math.fround`) against a double.
 

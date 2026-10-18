@@ -104,6 +104,21 @@ impl Engine {
             Some(&rd(english_path)?),
         )?))
     }
+    /// Load `data.json` + `lexicon.json` + `english.json` + `mapping.json` (the consonant / vowel charts).
+    pub fn load_with_mapping(
+        data_path: &str,
+        lexicon_path: &str,
+        english_path: &str,
+        mapping_path: &str,
+    ) -> Result<Engine, Error> {
+        let rd = |p: &str| std::fs::read_to_string(p).map_err(|e| Error::Io(format!("{p}: {e}")));
+        Ok(Engine::from_model(Model::from_json_full(
+            &rd(data_path)?,
+            &rd(lexicon_path)?,
+            Some(&rd(english_path)?),
+            Some(&rd(mapping_path)?),
+        )?))
+    }
     /// Load the compiled `khdata.bin` made by `khbuild` (fast start).
     pub fn load_compiled(path: &str) -> Result<Engine, Error> {
         let b = std::fs::read(path).map_err(|e| Error::Io(format!("{path}: {e}")))?;

@@ -25,9 +25,9 @@ const ANCHOR = '/* -------------------------------------------------------------
 if (script.split(ANCHOR).length !== 2) throw new Error('UI anchor not unique in template.html');
 const enginePart = script.split(ANCHOR)[0];
 
-function loadRef(dataText, lexText, enText) {
-  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText).replace('__EN__', () => enText) +
-    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, enKey, enStems, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, EN, SEED, NIDA, nidaRead, autoResolve, autoKey});';
+function loadRef(dataText, lexText, enText, mapText = 'null') {
+  const code = enginePart.replace('__DATA__', () => dataText).replace('__LEX__', () => lexText).replace('__EN__', () => enText).replace('__MAP__', () => mapText) +
+    '\n({normalize, clusters, romKey, romanize, compose, Engine, lev, levS, enKey, enStems, CONS, VOW, FINAL, INDEP, ONSET_LAT, FINAL_LAT, TO_A, TO_O, VOWSIGNS, LEX, EN, SEED, NIDA, nidaRead, autoResolve, autoKey, setMapping});';
   const ref = vm.runInNewContext(code);
   ref.E = new ref.Engine(JSON.parse(dataText));
   return ref;
@@ -387,6 +387,48 @@ function engineGolden(name, ref, words, sents, latinPool) {
 
 const synthWords = synth.data.words;
 const synthSentences = Array.from({ length: 150 }, () => Array.from({ length: 2 + ri(4) }, () => synthWords[Math.floor(Math.pow(R(), 2) * 6000)]).join(' '));
-engineGolden('seed', seedRef, seedWords, sentences, lexVals);
-engineGolden('synth', synthRef, Array.from({ length: 120 }, () => synthWords[Math.floor(Math.pow(R(), 1.3) * 21000)]), synthSentences, Object.values(synth.lex).flatMap(v => v.split(/\s+/)).filter((_, i) => i % 40 === 0));
+// GOLDEN_ONLY=mapped skips the two slow engine sections (the mapped vectors have their own PRNG and need nothing from them)
+const SKIP_ENGINE = process.env.GOLDEN_ONLY === 'mapped';
+if (!SKIP_ENGINE) engineGolden('seed', seedRef, seedWords, sentences, lexVals);
+if (!SKIP_ENGINE) engineGolden('synth', synthRef, Array.from({ length: 120 }, () => synthWords[Math.floor(Math.pow(R(), 1.3) * 21000)]), synthSentences, Object.values(synth.lex).flatMap(v => v.split(/\s+/)).filter((_, i) => i % 40 === 0));
+
+// ------------------------------------------------------------------ a custom mapping (the charts as data; built from admin/default_mapping.json, never from data/mapping.json, which the admin pages overwrite)
+// The engine reads its consonant / vowel charts from a mapping file. This one differs from the built-in charts in every
+// way a mapping can: a final spelled with the onset letter (leab), extra vowel readings, new vowel rows, an onset that
+// replaces a built-in one, a changed first reading (so generated spellings change) and a letter that cannot switch series.
+{
+  const base = JSON.parse(read('admin/default_mapping.json'));
+  const m = JSON.parse(JSON.stringify(base));
+  const cons = l => m.consonants.find(c => c.letter === l);
+  const vow = sg => m.vowels.find(v => v.sign === sg);
+  cons('ប').final = 'b'; cons('ដ').final = 'd'; cons('គ').final = 'g';          // generated spellings change: លាប reads "leab"
+  cons('ឋ').onset = 'tth'; cons('ន').toA = false; cons('ង').toA = false;
+  m.finals.push({ latin: 'b', letters: 'ប' }, { latin: 'd', letters: 'ដ' }, { latin: 'g', letters: 'គ' });
+  m.onsetExtra.push({ latin: 'gn', letters: 'ញ' });
+  m.onsetExtra.find(x => x.latin === 'c').letters = 'ច';                          // replaces the built-in "c" in place
+  vow('ិ').O.push('e'); vow('ូ').A.push('au', 'o'); vow('ំ').O.push('oum'); vow('ះ').A.unshift('as');
+  m.vowels.push({ sign: 'ុះ', A: ['os'], O: ['ous'] }, { sign: 'េះ', A: ['es'], O: ['es'] }, { sign: 'ោះ', A: ['aso'], O: ['uos'] });
+  m.independent.push({ letter: 'ឝ', latin: 'sha' });
+  write('mapping_custom.json', m);
+  const mapText = JSON.stringify(m);
+  const ref = loadRef(read('data/data.json'), read('data/lexicon.json'), read('data/english.json'), mapText);
+  const E = ref.E, RM = mulberry32(4242), rm = k => Math.floor(RM() * k), rp = a => a[rm(a.length)];
+  const romanizeCases = [...seedWords, 'លាប', 'កាប', 'ដាដ', 'គាគ', 'ឋាន', 'ក្នុង', 'ឝ', 'ក៏', 'កុះ', 'កេះ', 'កោះ', 'គោះ', 'ម៉ូ', 'ស៊ី'].map(w => ({ word: w, roman: ref.romanize(w) }));
+  const tokens = ['leab', 'leap', 'lieb', 'kab', 'kad', 'kag', 'bob', 'ten', 'sok', 'phnom', 'kos', 'kes', 'kaso', 'kuos', 'gnom', 'coc', 'tthan', 'knhom', 'sabay', 'koum', 'kau', 'kum', 'koum', 'ket', 'kit',
+    ...lexVals.filter((_, i) => i % 3 === 0)];
+  for (let i = 0; i < 120; i++) tokens.push(Array.from({ length: 1 + rm(2) }, () => rp(ONS) + rp(VOWS) + rp(['', '', 'b', 'd', 'g', 'k', 'ng', 't', 'p', 's', 'h'])).join(''));
+  const prior = E.prior;
+  const latin = tokens.map(tk => {
+    const t = rp(['', '', rp(sentences).split(' ').slice(0, 2).join(' ') + ' ']);
+    const ctx = E.analyze(ref.normalize(t)); if (ctx.partial) { ctx.tokens.push(ctx.partial); ctx.prev = ctx.partial; ctx.partial = ''; }
+    return { text: t, token: tk, prev: ctx.prev, out: E.romSuggest(tk, ctx).map(cleanCand) };
+  });
+  const comp = tokens.map(t => ({ t, out: ref.compose(t, prior) }));
+  const runs = [...tokens.slice(0, 80), 'xjJuM', 'hello,water', 'leab,', 'windows'];
+  const auto = runs.map(run => {
+    const ctx = E.analyze(''); 
+    return { run, prev: ctx.prev, out: E.autoSuggest(run, ctx).map(c => ({ word: c.word, kind: c.kind, tier: c.tier, p: c.p === undefined ? null : c.p, rom: c.rom === undefined ? null : c.rom, why: c.why === undefined ? null : c.why, replace: c.replace, source: c.source })) };
+  });
+  write('engine_mapped.json', { name: 'mapped', romanize: romanizeCases, latin, compose: comp, auto });
+}
 console.log('golden files written to', HERE);

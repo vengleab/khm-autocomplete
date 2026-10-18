@@ -234,6 +234,7 @@
 const SEED = __DATA__;
 const LEX = __LEX__;
 const EN = __EN__;      // Khmer word -> English glosses, comma separated (data/english.json)
+const MAP = __MAP__;    // the consonant / vowel charts (data/mapping.json, edited in admin/), or null for the built-in ones below
 
 /* ------------------------------------------------------------------ Khmer text */
 // Same rules as normalize() in build_data.py.
@@ -272,12 +273,12 @@ function clusters(s) {
 // The two transliteration charts, as data: consonants with their series, and what each vowel
 // sign sounds like after a first-series (A) or second-series (O) consonant. The first spelling
 // in each list is what the generator writes; the others are accepted when typing.
-const CONS = [["ក","A","k"],["ខ","A","kh"],["គ","O","k"],["ឃ","O","kh"],["ង","O","ng"],["ច","A","ch"],["ឆ","A","chh"],
+let CONS = [["ក","A","k"],["ខ","A","kh"],["គ","O","k"],["ឃ","O","kh"],["ង","O","ng"],["ច","A","ch"],["ឆ","A","chh"],
   ["ជ","O","ch"],["ឈ","O","chh"],["ញ","O","nh"],["ដ","A","d"],["ឋ","A","th"],["ឌ","O","d"],["ឍ","O","th"],["ណ","O","n"],
   ["ត","A","t"],["ថ","A","th"],["ទ","O","t"],["ធ","O","th"],["ន","O","n"],["ប","A","b"],["ផ","A","ph"],["ព","O","p"],
   ["ភ","O","ph"],["ម","O","m"],["យ","O","y"],["រ","O","r"],["ល","O","l"],["វ","O","v"],["ស","A","s"],["ហ","A","h"],
   ["ឡ","A","l"],["អ","A",""]];
-const VOW = [
+let VOW = [
   { s: "",  A: ["a"],           O: ["o"] },                 // inherent vowel: ក ka, គ ko
   { s: "ា", A: ["a", "aa"],     O: ["ea", "ia"] },           // ក+ា ka, គ+ា kea
   { s: "ិ", A: ["e"],           O: ["i"] },
@@ -300,12 +301,12 @@ const VOW = [
   { s: "ាំ", A: ["am"],         O: ["oam", "eam"] },
   { s: "ះ", A: ["ah"],          O: ["eah", "ah"] },
 ];
-const SIGN = new Map(VOW.map(e => [e.s, e]));
+let SIGN = new Map(VOW.map(e => [e.s, e]));
 const VOWSIGNS = new Set("ាិីឹឺុូួើឿៀេែៃោៅ");
-const SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
-const ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
-const FINAL = {ក:"k",ខ:"k",គ:"k",ឃ:"k",ង:"ng",ច:"ch",ឆ:"ch",ជ:"ch",ឈ:"ch",ញ:"nh",ដ:"t",ឋ:"t",ឌ:"t",ឍ:"t",ណ:"n",ត:"t",ថ:"t",ទ:"t",ធ:"t",ន:"n",ប:"p",ផ:"p",ព:"p",ភ:"p",ម:"m",យ:"y",រ:"",ល:"l",វ:"v",ស:"s",ហ:"h",ឡ:"l",អ:""};
-const INDEP = {"ឥ":"e","ឦ":"ei","ឧ":"o","ឩ":"ou","ឪ":"au","ឫ":"rue","ឬ":"rue","ឭ":"rue","ឮ":"rue","ឯ":"ae","ឰ":"ai","ឱ":"ao","ឲ":"ao","ឳ":"au"};
+let SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
+let ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
+let FINAL = {ក:"k",ខ:"k",គ:"k",ឃ:"k",ង:"ng",ច:"ch",ឆ:"ch",ជ:"ch",ឈ:"ch",ញ:"nh",ដ:"t",ឋ:"t",ឌ:"t",ឍ:"t",ណ:"n",ត:"t",ថ:"t",ទ:"t",ធ:"t",ន:"n",ប:"p",ផ:"p",ព:"p",ភ:"p",ម:"m",យ:"y",រ:"",ល:"l",វ:"v",ស:"s",ហ:"h",ឡ:"l",អ:""};
+let INDEP = {"ឥ":"e","ឦ":"ei","ឧ":"o","ឩ":"ou","ឪ":"au","ឫ":"rue","ឬ":"rue","ឭ":"rue","ឮ":"rue","ឯ":"ae","ឰ":"ai","ឱ":"ao","ឲ":"ao","ឳ":"au"};
 // Khmer word -> rough Latin spelling, used for words that have no hand-written spelling.
 function romanize(word) {
   const cs = clusters(word), n = cs.length; let out = "", open = false;
@@ -335,11 +336,29 @@ function romanize(word) {
 }
 // Latin syllable -> Khmer letters, following the same charts backwards. The vowel sound tells us
 // which series the consonant must be in, which picks the letter (k + "ea" can only be គ, never ក).
-const ONSET_LAT = {};
+let ONSET_LAT = {};
 CONS.forEach(([l, , lat]) => { if (lat) (ONSET_LAT[lat] = ONSET_LAT[lat] || []).push(l); });
 Object.assign(ONSET_LAT, { g: ["គ"], j: ["ច", "ជ"], c: ["ច", "ជ"], ny: ["ញ"], w: ["វ"], q: ["ក"] });
-const FINAL_LAT = { k:["ក"], ng:["ង"], ch:["ច"], nh:["ញ"], t:["ត","ដ","ទ"], n:["ន","ណ"], p:["ប","ព"], m:["ម"], y:["យ"], l:["ល"], v:["វ"], s:["ស"], h:["ហ"] };
-const TO_A = new Set("ងញនមយរលវណ"), TO_O = new Set("បសហអឡ");    // letters that can take a series-switching mark
+let FINAL_LAT = { k:["ក"], ng:["ង"], ch:["ច"], nh:["ញ"], t:["ត","ដ","ទ"], n:["ន","ណ"], p:["ប","ព"], m:["ម"], y:["យ"], l:["ល"], v:["វ"], s:["ស"], h:["ហ"] };
+let TO_A = new Set("ងញនមយរលវណ"), TO_O = new Set("បសហអឡ");    // letters that can take a series-switching mark
+// Replace the charts above with a mapping (the format of data/mapping.json, which admin/mapping.html edits). Call it before
+// building an Engine: the generated spellings and the rule guesses are made from these tables.
+function setMapping(m) {
+  CONS = m.consonants.map(c => [c.letter, c.series, c.onset]);
+  VOW = m.vowels.map(v => ({ s: v.sign, A: v.A, O: v.O }));
+  FINAL = Object.fromEntries(m.consonants.map(c => [c.letter, c.final]));
+  INDEP = Object.fromEntries(m.independent.map(x => [x.letter, x.latin]));
+  SIGN = new Map(VOW.map(e => [e.s, e]));
+  SER_OF = Object.fromEntries(CONS.map(c => [c[0], c[1]]));
+  ONSET = Object.fromEntries(CONS.map(c => [c[0], c[2]]));
+  ONSET_LAT = {};
+  CONS.forEach(([l, , lat]) => { if (lat) (ONSET_LAT[lat] = ONSET_LAT[lat] || []).push(l); });
+  m.onsetExtra.forEach(x => { ONSET_LAT[x.latin] = Array.from(x.letters); });    // like Object.assign: an existing key keeps its place
+  FINAL_LAT = Object.fromEntries(m.finals.map(x => [x.latin, Array.from(x.letters)]));
+  TO_A = new Set(m.consonants.filter(c => c.toA).map(c => c.letter));
+  TO_O = new Set(m.consonants.filter(c => c.toO).map(c => c.letter));
+}
+if (MAP) setMapping(MAP);
 function compose(token, prior) {
   const t = token.toLowerCase().replace(/[^a-z]/g, ""), found = new Map();
   if (!t) return [];

@@ -4,6 +4,11 @@ use crate::cluster::{clusters, COENG};
 use crate::tables::*;
 
 pub fn romanize(word: &str) -> String {
+    romanize_with(Tables::builtin(), word)
+}
+
+/// `romanize` with the charts of `t` (a mapping file's tables instead of the built-in ones).
+pub fn romanize_with(t: &Tables, word: &str) -> String {
     let cs = clusters(word);
     let n = cs.len();
     let mut out = String::new();
@@ -36,10 +41,10 @@ pub fn romanize(word: &str) -> String {
         if has('\u{17CD}') || has('\u{17D1}') {
             continue; // silent letter
         }
-        if let Some(s) = indep(base) {
+        if let Some(s) = t.indep(base) {
             out.push_str(s);
             for x in &subs {
-                out.push_str(final_of(*x).unwrap_or(""));
+                out.push_str(t.final_of(*x).unwrap_or(""));
             }
             open = false;
             continue;
@@ -48,11 +53,11 @@ pub fn romanize(word: &str) -> String {
         let reah = has('\u{17C7}');
         let has_nuc = vowel.is_some() || nik || reah || has('\u{17D0}');
         if open && vowel.is_none() && (has('\u{17CB}') || (!has_nuc && (is_last || subs.is_empty()))) {
-            out.push_str(final_of(base).unwrap_or(""));
+            out.push_str(t.final_of(base).unwrap_or(""));
             open = false;
             continue;
         }
-        let mut ser = series_of(base).unwrap_or(Series::O);
+        let mut ser = t.series_of(base).unwrap_or(Series::O);
         if has('\u{17C9}') {
             ser = Series::A;
         } else if has('\u{17CA}') {
@@ -75,10 +80,11 @@ pub fn romanize(word: &str) -> String {
         let mut v: String = if has('\u{17D0}') && vowel.is_none() {
             "a".to_string()
         } else {
-            let row = sign_row(&sign).or_else(|| sign_row(&vs)).expect("every vowel sign is in the chart");
-            row.readings(ser)[0].to_string()
+            // `Tables::from_json` guarantees a row for every sign; an empty string is the defensive fallback
+            let row = t.sign_row(&sign).or_else(|| t.sign_row(&vs));
+            row.and_then(|r| r.readings(ser).first()).cloned().unwrap_or_default()
         };
-        if vowel.is_some() && sign_row(&sign).is_none() {
+        if vowel.is_some() && t.sign_row(&sign).is_none() {
             // dead in the reference (every sign is in the chart); kept so the port stays line for line
             v.push_str(if nik {
                 "m"
@@ -90,9 +96,9 @@ pub fn romanize(word: &str) -> String {
         } else if vowel.is_some() && reah {
             v.push('h');
         }
-        out.push_str(onset(base).unwrap_or(""));
+        out.push_str(t.onset(base).unwrap_or(""));
         for x in &subs {
-            out.push_str(onset(*x).unwrap_or(""));
+            out.push_str(t.onset(*x).unwrap_or(""));
         }
         out.push_str(&v);
         open = !(nik || reah);

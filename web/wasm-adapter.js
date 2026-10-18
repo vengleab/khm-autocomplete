@@ -5,8 +5,8 @@
   const { WasmEngine } = wasm_bindgen;
   class KhWasmEngine {
     constructor(data) {
-      // LEX and EN are the template's lexicon and English glossary constants; it exists by the time the UI creates an engine
-      this.core = new WasmEngine(JSON.stringify(data), JSON.stringify(LEX), JSON.stringify(EN));
+      // LEX, EN and MAP are the template's lexicon, English glossary and mapping constants; it exists by the time the UI creates an engine
+      this.core = new WasmEngine(JSON.stringify(data), JSON.stringify(LEX), JSON.stringify(EN), MAP ? JSON.stringify(MAP) : undefined);
       this.kind = "WebAssembly (Rust)";
       this.words = { length: this.core.vocab() };
       this.meta = { tokens: this.core.tokens(), sentences: this.core.sentences(), source: this.core.source() };

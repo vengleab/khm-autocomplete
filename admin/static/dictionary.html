@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khmer admin: dictionary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;600&display=swap">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Khmer word dictionary</h1>
+    <div id="nav"></div>
+  </header>
+
+  <section class="card" aria-label="About">
+    <p style="margin:0">Each Khmer word has <b>Khmerlish spellings</b> (the lexicon: how people type it in Latin letters, separated by spaces) and an
+      <b>English translation</b> (comma separated; typing one of them in the Khmer state converts to the word). The suggested spelling is made from the
+      <a href="/mapping.html">mapping</a>. Press <b>Export</b> to write <span class="mono">data/lexicon.json</span>, <span class="mono">english.json</span> and
+      <span class="mono">data.json</span> for the engine.</p>
+    <div class="row" style="margin-top:8px">
+      <span id="stats" class="chip">loading…</span><span class="grow"></span>
+      <button id="export">Export to data/</button>
+    </div>
+    <div id="msg" hidden role="alert" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-add">
+    <h2 id="h-add">Add a word</h2>
+    <form id="add" class="row" style="align-items:end">
+      <label style="flex:1 1 150px">Khmer word<input id="a-word" class="kh khmer" type="text" lang="km" required autocomplete="off" spellcheck="false"></label>
+      <label style="flex:0 1 90px">Frequency<input id="a-freq" type="number" min="1" step="1" value="1"></label>
+      <label style="flex:1 1 200px">Khmerlish spellings<input id="a-sp" class="lat" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="knhom knyom"></label>
+      <label style="flex:1 1 200px">English translation<input id="a-gl" type="text" autocomplete="off" placeholder="I, me, my"></label>
+      <button type="button" id="a-suggest" title="Fill the spellings with the one the mapping makes for this word">Suggest spelling</button>
+      <button class="primary" type="submit">Add word</button>
+    </form>
+    <p class="muted" style="margin:8px 0 0;font-size:0.84rem">New words go to the end of the vocabulary with the frequency you give; they are matched by Khmerlish and English
+      but are not offered as "common words". The word list from a corpus build stays as it is (the bigram data refers to words by position).</p>
+    <div id="add-msg" hidden role="alert" style="margin-top:8px"></div>
+  </section>
+
+  <div class="cols">
+    <section class="card" aria-label="Words">
+      <div class="row" style="margin-bottom:8px">
+        <input id="q" type="search" placeholder="Search Khmer, a spelling or a translation" aria-label="Search" style="flex:1 1 220px;width:auto">
+        <select id="filter" aria-label="Filter" style="width:auto">
+          <option value="all">All words</option>
+          <option value="no_spelling">No Khmerlish spelling</option>
+          <option value="no_gloss">No English translation</option>
+          <option value="added">Added here</option>
+        </select>
+        <select id="size" aria-label="Rows per page" style="width:auto"><option>25</option><option>50</option><option>100</option></select>
+      </div>
+      <div class="scroll"><table id="t"><thead><tr>
+        <th>Word</th><th title="how often the word occurs; ranks suggestions">Freq</th><th>Khmerlish spellings</th><th>Rule spelling</th><th>English translation</th><th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="row" style="margin-top:8px">
+        <button id="prev">&larr; Previous</button><button id="next">Next &rarr;</button><span id="range" class="muted"></span>
+      </div>
+    </section>
+
+    <aside class="tools" aria-label="Try the dictionary">
+      <section class="card">
+        <h2>Try it</h2>
+        <div class="row" role="group" aria-label="Input kind">
+          <label><input type="radio" name="kind" value="khmerlish" checked> Khmerlish</label>
+          <label><input type="radio" name="kind" value="english"> English</label>
+        </div>
+        <input id="try" class="lat" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="knhom" style="margin-top:6px" aria-label="Try a word">
+        <div id="out" style="margin-top:8px"></div>
+        <p class="muted" style="font-size:0.8rem">Uses the saved dictionary and mapping, with the tiers the engine uses:
+          exact (0), prefix (1), close typo (2+). Space converts only tier &lt; 1 in the Khmer state.</p>
+      </section>
+    </aside>
+  </div>
+</div>
+<script src="/admin.js"></script>
+<script>
+"use strict";
+document.getElementById("nav").replaceWith(nav("/dictionary.html"));
+const $ = id => document.getElementById(id);
+let KE = null, engine = null, page = 0, total = 0;
+
+async function stats() {
+  const s = await api("GET", "/api/stats");
+  $("stats").textContent = s.words + " words · " + s.withSpellings + " with Khmerlish · " + s.withGlosses + " with English" + (s.added ? " · " + s.added + " added here" : "");
+}
+
+// ---- rows
+function ruleSpelling(word) { try { return KE ? KE.romanize(KE.normalize(word)) : ""; } catch (e) { return ""; } }
+
+function rowFor(r) {
+  const state = { ...r };
+  const tr = h("tr", {});
+  const f = h("input", { type: "number", min: 1, step: 1, value: r.freq, "aria-label": "Frequency of " + r.word, style: "width:5.5rem" });
+  const sp = h("input", { type: "text", class: "lat", value: r.spellings, "aria-label": "Khmerlish spellings of " + r.word, autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
+  const gl = h("input", { type: "text", value: r.glosses, "aria-label": "English translation of " + r.word, autocomplete: "off" });
+  const rule = ruleSpelling(r.word);
+  const hint = h("span", { class: "chip", title: "Spelling made by the mapping. Click to add it to the spellings." },
+    h("button", { type: "button", text: rule || "–", onclick: () => { if (!rule) return; const have = sp.value.split(/\s+/).filter(Boolean); if (!have.includes(rule)) { sp.value = have.concat(rule).join(" "); mark(); } } }));
+  const msg = h("span", { class: "muted", style: "font-size:0.78rem" });
+  const save = h("button", { class: "primary", text: "Save", disabled: true });
+  const del = h("button", { class: "danger", text: r.added ? "Remove" : "Clear", title: r.added ? "Remove this word from the dictionary" : "Clear its spellings and translation (the word stays in the vocabulary)" });
+  const changed = () => String(f.value) !== String(state.freq) || sp.value.trim() !== state.spellings || gl.value.trim() !== state.glosses;
+  function mark() { tr.classList.toggle("dirty", changed()); save.disabled = !changed(); msg.textContent = ""; }
+  [f, sp, gl].forEach(i => i.addEventListener("input", mark));
+  [f, sp, gl].forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter" && changed()) save.click(); }));
+  save.onclick = async () => {
+    try {
+      const row = await api("PUT", "/api/words", { word: r.word, freq: parseInt(f.value, 10), spellings: sp.value, glosses: gl.value });
+      Object.assign(state, row); f.value = row.freq; sp.value = row.spellings; gl.value = row.glosses;
+      applyToEngine(row); mark(); msg.textContent = "saved"; stats();
+    } catch (e) { msg.textContent = e.errors.join("; "); msg.style.color = "var(--bad)"; }
+  };
+  del.onclick = async () => {
+    if (!confirm(r.added ? "Remove " + r.word + " from the dictionary?" : "Clear the spellings and translation of " + r.word + "?")) return;
+    try { const res = await api("DELETE", "/api/words?word=" + encodeURIComponent(r.word)); applyDelete(r, res.result); await list(); stats(); }
+    catch (e) { msg.textContent = e.message; }
+  };
+  tr.append(h("td", { class: "kh", style: "font-size:1.3rem;white-space:nowrap", text: r.word }), h("td", {}, f), h("td", {}, sp), h("td", {}, hint), h("td", {}, gl), h("td", { style: "white-space:nowrap" }, save, " ", del, " ", msg));
+  return tr;
+}
+
+async function list() {
+  const size = parseInt($("size").value, 10), q = $("q").value.trim();
+  const res = await api("GET", "/api/words?" + new URLSearchParams({ q, filter: $("filter").value, offset: page * size, limit: size }));
+  total = res.total;
+  if (page > 0 && !res.rows.length) { page = Math.max(0, Math.ceil(total / size) - 1); return list(); }
+  $("t").tBodies[0].replaceChildren(...res.rows.map(rowFor));
+  $("range").textContent = total ? (page * size + 1) + "–" + (page * size + res.rows.length) + " of " + total : "no words match";
+  $("prev").disabled = page === 0;
+  $("next").disabled = (page + 1) * size >= total;
+}
+const relist = debounce(() => { page = 0; list().catch(show); }, 250);
+$("q").addEventListener("input", relist);
+$("filter").addEventListener("change", relist);
+$("size").addEventListener("change", relist);
+$("prev").onclick = () => { page--; list().catch(show); };
+$("next").onclick = () => { page++; list().catch(show); };
+function show(e) { showErrors($("msg"), e); }
+
+// ---- add
+$("a-suggest").onclick = () => { const w = $("a-word").value.trim(); if (w && KE) $("a-sp").value = ruleSpelling(w); };
+$("add").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const box = $("add-msg");
+  try {
+    const row = await api("POST", "/api/words", { word: $("a-word").value, freq: parseInt($("a-freq").value || "1", 10), spellings: $("a-sp").value, glosses: $("a-gl").value });
+    applyToEngine(row, true);
+    showOk(box, "Added " + row.word); toast("Added " + row.word);
+    $("a-word").value = ""; $("a-sp").value = ""; $("a-gl").value = ""; $("a-freq").value = "1";
+    $("q").value = row.word; $("filter").value = "all"; page = 0; await list(); stats(); $("a-word").focus();
+  } catch (e) { showErrors(box, e); }
+});
+$("export").onclick = async () => {
+  try { const r = await api("POST", "/api/export", {}); showOk($("msg"), "Wrote " + Object.keys(r.written).join(", ") + " to " + r.folder + ". Rebuild the engine data (admin/README.md)."); }
+  catch (e) { showErrors($("msg"), e); }
+};
+
+// ---- try it: the JS reference engine, kept in step with the saved edits
+function applyToEngine(row, created) {
+  if (!KE) return;
+  if (created) { KE.SEED.words.push(row.word); KE.SEED.freq.push(row.freq); }
+  else { const i = KE.SEED.words.indexOf(row.word); if (i >= 0) KE.SEED.freq[i] = row.freq; }
+  if (row.spellings) KE.LEX[row.word] = row.spellings; else delete KE.LEX[row.word];
+  if (row.glosses) KE.EN[row.word] = row.glosses; else delete KE.EN[row.word];
+  engine = null; runTry();
+}
+function applyDelete(row, result) {
+  if (!KE) return;
+  delete KE.LEX[row.word]; delete KE.EN[row.word];
+  if (result === "removed") { const i = KE.SEED.words.indexOf(row.word); if (i >= 0) { KE.SEED.words.splice(i, 1); KE.SEED.freq.splice(i, 1); } }
+  engine = null; runTry();
+}
+function runTry() {
+  const out = $("out"), tok = $("try").value.trim();
+  out.replaceChildren();
+  if (!KE || !tok) return;
+  if (!engine) engine = new KE.Engine(KE.SEED);
+  const english = document.querySelector("input[name=kind]:checked").value === "english";
+  const res = english ? engine.enSuggest(tok, { prev: "^" }, 6) : engine.romSuggest(tok, { prev: "^" }, 6);
+  if (!res.length) return out.append(h("p", { class: "muted", text: "No word matches." }));
+  out.append(h("table", {}, h("tbody", {}, res.map(r => h("tr", {},
+    h("td", { class: "kh", style: "font-size:1.25rem", text: r.word }),
+    h("td", { class: "mono muted", style: "font-size:0.76rem" }, h("span", { class: "chip " + (r.tier < 1 ? "ok" : r.tier < 2 ? "warn" : "bad"), text: "tier " + (+r.tier.toFixed(1)) }), " " + r.kind + " · " + r.rom))))));
+}
+$("try").addEventListener("input", runTry);
+document.querySelectorAll("input[name=kind]").forEach(r => r.addEventListener("change", () => { $("try").placeholder = r.value === "english" && r.checked ? "water" : "knhom"; runTry(); }));
+
+(async () => {
+  try { KE = await loadEngine(); await Promise.all([list(), stats()]); }
+  catch (e) { show(e); }
+})();
+</script>
+</body>
+</html>

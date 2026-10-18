@@ -65,6 +65,13 @@ struct KhEngine *kh_engine_open_with_english(const char *data_path,
                                              const char *lexicon_path,
                                              const char *english_path);
 
+// Like `kh_engine_open_with_english`, plus `mapping.json` (the consonant / vowel charts edited in the admin pages).
+// Returns NULL on failure. A compiled `khdata.bin` carries its mapping inside, so products need no extra file.
+struct KhEngine *kh_engine_open_with_mapping(const char *data_path,
+                                             const char *lexicon_path,
+                                             const char *english_path,
+                                             const char *mapping_path);
+
 // Open an engine from a compiled `khdata.bin` made by `khbuild`. Returns NULL on failure.
 struct KhEngine *kh_engine_open_compiled(const char *path);
 

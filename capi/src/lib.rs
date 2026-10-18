@@ -140,6 +140,25 @@ pub unsafe extern "C" fn kh_engine_open_with_english(
     })
 }
 
+/// Like `kh_engine_open_with_english`, plus `mapping.json` (the consonant / vowel charts edited in the admin pages).
+/// Returns NULL on failure. A compiled `khdata.bin` carries its mapping inside, so products need no extra file.
+#[no_mangle]
+pub unsafe extern "C" fn kh_engine_open_with_mapping(
+    data_path: *const c_char,
+    lexicon_path: *const c_char,
+    english_path: *const c_char,
+    mapping_path: *const c_char,
+) -> *mut KhEngine {
+    guard(|| {
+        engine_ptr(Engine::load_with_mapping(
+            str_arg(data_path, "data_path")?,
+            str_arg(lexicon_path, "lexicon_path")?,
+            str_arg(english_path, "english_path")?,
+            str_arg(mapping_path, "mapping_path")?,
+        ))
+    })
+}
+
 /// Open an engine from a compiled `khdata.bin` made by `khbuild`. Returns NULL on failure.
 #[no_mangle]
 pub unsafe extern "C" fn kh_engine_open_compiled(path: *const c_char) -> *mut KhEngine {

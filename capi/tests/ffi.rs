@@ -287,3 +287,26 @@ fn auto_mode_reads_the_run_three_ways() {
         kh_engine_free(e);
     }
 }
+
+#[test]
+fn open_with_mapping_reads_the_charts_from_a_file() {
+    unsafe {
+        let r = root();
+        let p = |f: &str| c(r.join(f).to_str().unwrap());
+        let (d, l, en) = (p("data/data.json"), p("data/lexicon.json"), p("data/english.json"));
+        let m = p("tests/golden/mapping_custom.json");
+        let e = kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), m.as_ptr());
+        assert!(!e.is_null(), "{:?}", err());
+        // the custom charts write a final ប as B, so `leab` is a rule guess for លាប
+        let v: Value =
+            serde_json::from_str(&take(kh_suggest(e, c("leab").as_ptr(), KH_MODE_LATIN, std::ptr::null()))).unwrap();
+        assert_eq!(v[0]["word"], "លាប");
+        kh_engine_free(e);
+        // a missing or invalid mapping file is an error with a message, not a crash
+        let bad = p("data/data.json");
+        assert!(kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), bad.as_ptr()).is_null());
+        assert!(err().is_some());
+        let none = c("/no/such/mapping.json");
+        assert!(kh_engine_open_with_mapping(d.as_ptr(), l.as_ptr(), en.as_ptr(), none.as_ptr()).is_null());
+    }
+}

@@ -1,7 +1,7 @@
 //! Segmentation of typed Khmer, Khmer-script suggestions and Latin (Khmerlish) suggestions.
 //! These are the engine's inner functions, one per reference function; `engine.rs` is the public API.
 use crate::cluster::cluster_offsets;
-use crate::compose::compose;
+use crate::compose::compose_with;
 use crate::engine::Kind;
 use crate::english::{en_key, stems};
 use crate::model::{Model, FUZZY_WORDS};
@@ -258,7 +258,7 @@ pub fn rom_suggest(m: &Model, scorer: &dyn Scorer, token: &str, prev: &str, limi
     let mut items: Vec<(Option<usize>, u32, f64, Option<f64>)> =
         best.iter().zip(ps).map(|(&(w, t), p)| (None, w, t, Some(p))).collect();
     // nothing in the word list sounds like it: spell it from the charts, flagged as a guess
-    let rules = if !best.iter().any(|b| b.1 < 2.0) { compose(token, &m.prior) } else { Vec::new() };
+    let rules = if !best.iter().any(|b| b.1 < 2.0) { compose_with(&m.tables, token, &m.prior) } else { Vec::new() };
     for i in 0..rules.len() {
         items.push((Some(i), u32::MAX, 1.8, None));
     }

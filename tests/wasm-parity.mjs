@@ -80,6 +80,28 @@ function engine(name, data, lex, en) {
 engine('seed', rd('data/data.json'), rd('data/lexicon.json'), rd('data/english.json'));
 engine('synth', rd('tests/golden/synth_data.json'), rd('tests/golden/synth_lexicon.json'), rd('tests/golden/synth_english.json'));
 
+// a custom mapping (the charts as data) through wasm: rule guesses and the sound index follow it, like the JS reference
+{
+  const g = gold('engine_mapped.json');
+  const e = new WasmEngine(rd('data/data.json'), rd('data/lexicon.json'), rd('data/english.json'), rd('tests/golden/mapping_custom.json'));
+  const sameCands = (got, want) => got.length === want.length && got.every((a, i) => {
+    const b = want[i];
+    return a.word === b.word && a.kind === b.kind && a.tier === b.tier && nulls(a.rom) === b.rom && nulls(a.why) === b.why && (b.p === null ? a.p === null : num(a.p, b.p)) &&
+      (b.replace === undefined || a.replace === b.replace) && (b.source === undefined || nulls(a.source) === b.source);
+  });
+  for (const c of g.compose) {
+    const got = JSON.parse(e.compose(c.t));
+    check(got.length === c.out.length && got.every((a, i) => a.word === c.out[i].word && a.why === c.out[i].why && num(a.score, c.out[i].score)), () => `mapped compose ${c.t}`);
+  }
+  for (const c of g.latin) check(sameCands(JSON.parse(e.latinCandidates(c.token, c.prev)), c.out), () => `mapped latin ${JSON.stringify(c.token)}`);
+  for (const c of g.auto) check(sameCands(JSON.parse(e.autoCandidates(c.run, c.prev)), c.out), () => `mapped auto ${JSON.stringify(c.run)}`);
+  // a bad mapping is an error, not a crash
+  let threw2 = false;
+  try { new WasmEngine(rd('data/data.json'), rd('data/lexicon.json'), rd('data/english.json'), '{}'); } catch { threw2 = true; }
+  check(threw2, () => 'a bad mapping must throw');
+  e.free();
+}
+
 // the compiled format loads in wasm too (made by khbuild; here we only check bad input is an error, not a crash)
 let threw = false;
 try { WasmEngine.fromCompiled(new Uint8Array([1, 2, 3])); } catch { threw = true; }
