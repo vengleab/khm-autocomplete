@@ -1,10 +1,11 @@
 //! The text service itself: a COM object that TSF creates once per UI thread in every app.
 //!
 //! Flow (see windows/README.md for the picture):
-//! - typing Latin/English letters: the app inserts them, TSF tells us (`OnEndEdit`), we read the text before the
-//!   caret, ask the engine, and show the candidate window;
-//! - Khmer mode: we swallow the key and type the Khmer letter ourselves (layout table, no engine needed);
-//! - Space / Enter / Tab: ask the engine what to do; either swallow the key and replace the pending text, or let it pass.
+//! - typing letters, digits or punctuation: keys are never remapped, the app inserts them as typed, TSF tells us
+//!   (`OnEndEdit`), we read the text before the caret, ask the engine (Auto mode: it reads the pending run as Khmerlish,
+//!   English or keys of the Khmer layout) and show the candidate window;
+//! - Space / Enter / Tab: ask the engine what to do; either swallow the key and replace the pending text, or let it pass;
+//! - the English state switches all of this off: every key is the app's and the engine is not called.
 //!
 //! Rules: never hold a `RefCell` borrow across a call into TSF or the engine (those can re-enter us), and wrap every
 //! COM entry point in `guard` so a bug here can never unwind into the host app.
@@ -49,7 +50,6 @@ const ASYNC_WRITE: TF_CONTEXT_EDIT_CONTEXT_FLAGS = TF_ES_READWRITE;
 enum Decision {
     Pass,
     CycleMode,
-    Type(&'static str),
     Insert(Candidate),
 }
 
@@ -156,6 +156,11 @@ impl TextService_Impl {
                 return;
             }
         }
+        // English state: no suggestions, and the engine is not called
+        let Some(mode) = self.mode.get().engine_mode() else {
+            self.clear_candidates();
+            return;
+        };
         let mark = self.accept_mark.borrow().clone();
         if let Some(m) = mark {
             if edit::caret_moved_from(ec, ctx, &m).unwrap_or(true) {
@@ -170,7 +175,6 @@ impl TextService_Impl {
             }
         };
         let just = self.just_accepted.borrow().clone();
-        let mode = self.mode.get() as u8;
         let cands = self.link.borrow_mut().suggest(&text, mode, just.as_deref());
         match cands {
             Some(c) if !c.is_empty() => {
@@ -183,30 +187,22 @@ impl TextService_Impl {
 
     // ------------------------------------------------------------------------------------------ keys
 
-    fn decide(&self, ctx: &ITfContext, wparam: WPARAM, lparam: LPARAM) -> Decision {
+    fn decide(&self, ctx: &ITfContext, wparam: WPARAM, _lparam: LPARAM) -> Decision {
         let vk = wparam.0 as u32;
-        let scan = ((lparam.0 >> 16) & 0xFF) as u16;
-        let extended = (lparam.0 >> 24) & 1 == 1;
-        match logic::plan(self.mode.get(), vk, scan, extended, read_mods()) {
+        match logic::plan(self.mode.get(), vk, read_mods()) {
             Plan::PassThrough => Decision::Pass,
             Plan::ForgetAndPassThrough => {
                 self.forget();
                 Decision::Pass
             }
             Plan::CycleMode => Decision::CycleMode,
-            Plan::Type { scan, shift, altgr } => match logic::typed(scan, shift, altgr) {
-                Some(s) => {
-                    self.forget();
-                    Decision::Type(s)
-                }
-                None => Decision::Pass,
-            },
             Plan::Ask(k) => self.ask(ctx, k),
         }
     }
 
     /// Space / Enter / Tab: ask the engine, but only when there is something on screen to accept.
     fn ask(&self, ctx: &ITfContext, key: Special) -> Decision {
+        let Some(mode) = self.mode.get().engine_mode() else { return Decision::Pass };
         if self.shown.borrow().is_empty() {
             self.forget();
             return Decision::Pass;
@@ -225,7 +221,7 @@ impl TextService_Impl {
             self.forget();
         }
         let just = self.just_accepted.borrow().clone();
-        let action = self.link.borrow_mut().key_action(&text, self.mode.get() as u8, key as u8, just.as_deref());
+        let action = self.link.borrow_mut().key_action(&text, mode, key as u8, just.as_deref());
         match action {
             Some(KeyAction::Insert(c)) => Decision::Insert(c),
             _ => {
@@ -242,10 +238,10 @@ impl TextService_Impl {
             Decision::CycleMode => {
                 let m = self.mode.get().next();
                 self.mode.set(m);
-                reg::save_mode(m as u32);
+                reg::save_state(m as u32);
                 self.forget();
                 self.clear_candidates();
-                // tell the user which mode this is, next to the caret
+                // tell the user which state this is, next to the caret
                 let c2 = ctx.clone();
                 let rect =
                     edit::run(ctx, self.client_id.get(), SYNC_READ, move |ec| edit::caret_rect(ec, &c2)).ok().flatten();
@@ -253,18 +249,6 @@ impl TextService_Impl {
                     w.show_label(m.label(), rect);
                 }
                 true
-            }
-            // If the text could not be changed (an app that refuses the edit), report the key as NOT eaten: it then
-            // reaches the app as an ordinary key press and is never silently lost.
-            Decision::Type(s) => {
-                let c2 = ctx.clone();
-                matches!(
-                    edit::run(ctx, self.client_id.get(), SYNC_WRITE, move |ec| Ok(edit::replace_before_caret(
-                        ec, &c2, 0, s
-                    )?
-                    .is_some())),
-                    Ok(true)
-                )
             }
             Decision::Insert(c) => self.apply(ctx, c, SYNC_WRITE),
         }
@@ -326,7 +310,7 @@ impl TextService_Impl {
     fn do_activate(&self, tm: &ITfThreadMgr, tid: u32) -> Result<()> {
         *self.thread_mgr.borrow_mut() = Some(tm.clone());
         self.client_id.set(tid);
-        self.mode.set(Mode::from_u32(reg::load_mode()));
+        self.mode.set(Mode::from_u32(reg::load_state()));
 
         let keys: ITfKeystrokeMgr = tm.cast()?;
         let key_sink: ITfKeyEventSink = self.to_interface();

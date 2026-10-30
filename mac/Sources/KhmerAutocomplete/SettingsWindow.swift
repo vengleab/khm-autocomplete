@@ -1,7 +1,7 @@
 import Cocoa
 import KhBridge
 
-/// A small preferences window: default mode and the apps where suggestions are off.
+/// A small preferences window: the state (Khmer or English) and the apps where suggestions are off.
 final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     static let shared = SettingsWindowController()
 
@@ -20,8 +20,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     private func build(in window: NSWindow) {
-        let modeLabel = NSTextField(labelWithString: "Mode:")
-        modePopUp.addItems(withTitles: ["Khmer script", "Latin input (Khmerlish)", "English → Khmer"])
+        let modeLabel = NSTextField(labelWithString: "Keyboard:")
+        modePopUp.addItems(withTitles: ["Khmer (reads Khmerlish, English and Khmer-layout keys)", "English (off)"])
         modePopUp.target = self
         modePopUp.action = #selector(modeChanged(_:))
 
@@ -30,7 +30,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         disabledField.delegate = self
 
         let note = NSTextField(wrappingLabelWithString:
-            "Suggestions are always off in password fields. Switch modes with Control + Option + Space. "
+            "Suggestions are always off in password fields. Switch between Khmer and English with Control + Option + Space. "
             + "Everything runs on this Mac; typed text is never stored or sent anywhere.")
         note.textColor = .secondaryLabelColor
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -56,7 +56,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     func show() {
-        modePopUp.selectItem(at: Int(Settings.shared.mode.rawValue))
+        modePopUp.selectItem(at: Settings.shared.state == .khmer ? 0 : 1)
         disabledField.stringValue = Settings.shared.disabledApps.joined(separator: ", ")
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
@@ -64,7 +64,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     @objc private func modeChanged(_ sender: NSPopUpButton) {
-        if let mode = InputMode(rawValue: Int32(sender.indexOfSelectedItem)) { Settings.shared.mode = mode }
+        Settings.shared.state = sender.indexOfSelectedItem == 0 ? .khmer : .english
     }
 
     func controlTextDidChange(_ obj: Notification) {

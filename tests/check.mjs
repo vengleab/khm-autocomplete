@@ -88,6 +88,62 @@ for (const { name, file, wasm } of pages) {
   await pg.keyboard.press('End');
   await pg.keyboard.press('Tab');
   if ((await pg.inputValue('#text')) !== 'ទឹក') fail(`Tab on "wat" gave ${await pg.inputValue('#text')}`);
+  // Auto mode: the one Khmer state. Khmerlish, an English word and keys of the Khmer layout in one sentence.
+  await pg.click('#m-auto');
+  if ((await pg.getAttribute('#m-auto', 'aria-pressed')) !== 'true') fail('Auto mode button is not pressed after a click');
+  await pg.fill('#text', '');
+  await pg.focus('#text');
+  await pg.keyboard.type('knhom chong water xjJuM ');
+  const auto = await pg.inputValue('#text');
+  if (auto !== 'ខ្ញុំចង់ទឹកខ្ញុំ') fail(`Auto flow: got ${auto}`);
+  // punctuation before the run stays: each candidate replaces its own span
+  await pg.fill('#text', '');
+  await pg.keyboard.type('hello,water ');
+  if ((await pg.inputValue('#text')) !== 'hello,ទឹក') fail(`Auto span: got ${await pg.inputValue('#text')}`);
+  // unknown English stays as typed, with the two chips; Space leaves it alone
+  await pg.fill('#text', 'windows');
+  seen['auto windows'] = await chips();
+  if (!seen['auto windows'][0]?.includes('Khmer (NiDA)') || !seen['auto windows'][1]?.includes('English')) fail(`windows should offer layout / raw chips: ${seen['auto windows']}`);
+  await pg.focus('#text');
+  await pg.keyboard.press('End');
+  await pg.keyboard.type(' ');
+  if ((await pg.inputValue('#text')) !== 'windows ') fail(`Space must leave unknown English alone: ${await pg.inputValue('#text')}`);
+  // clicking the raw chip keeps the text and ends the run; clicking the layout chip reads it as Khmer
+  await pg.fill('#text', 'windows');
+  await pg.click('#strip .chip:has-text("English")');
+  if ((await pg.inputValue('#text')) !== 'windows') fail(`raw chip changed the text: ${await pg.inputValue('#text')}`);
+  await pg.fill('#text', 'windows');
+  await pg.click('#strip .chip:has-text("Khmer (NiDA)")');
+  if ((await pg.inputValue('#text')) !== 'ឹិនដោឹស') fail(`layout chip gave ${await pg.inputValue('#text')}`);
+  // a half-typed Khmerlish word is not converted by Space; Tab takes the first suggestion; Enter never takes a chip
+  await pg.fill('#text', '');
+  await pg.keyboard.type('phnom ');
+  if ((await pg.inputValue('#text')) !== 'phnom ') fail(`Auto: Space converted a prefix: ${await pg.inputValue('#text')}`);
+  await pg.fill('#text', 'phnom');
+  seen['auto phnom'] = await chips();
+  await pg.keyboard.press('Tab');
+  if ((await pg.inputValue('#text')) !== 'ភ្នំពេញ') fail(`Auto Tab on phnom gave ${await pg.inputValue('#text')}`);
+  await pg.fill('#text', 'windows');
+  await pg.keyboard.press('Enter');
+  if ((await pg.inputValue('#text')) !== 'windows\n') fail(`Enter must stay a newline over layout / raw chips: ${JSON.stringify(await pg.inputValue('#text'))}`);
+  await pg.fill('#text', 'windows');
+  await pg.keyboard.press('Tab');
+  if ((await pg.inputValue('#text')) !== 'ឹិនដោឹស') fail(`Auto Tab over layout / raw chips gave ${await pg.inputValue('#text')}`);
+  // keys of the Khmer layout, partly typed: completions, then the word
+  await pg.fill('#text', 'xjJ');
+  seen['auto xjJ'] = await chips();
+  if (!seen['auto xjJ'][0]?.includes('ខ្ញុំ')) fail(`xjJ should complete to ខ្ញុំ: ${seen['auto xjJ']}`);
+  for (const t of ['knhom', 'wat', 'hello,water', 'sralan', '123']) { await pg.fill('#text', t); seen['auto ' + t] = await chips(); }
+  // text that ends in Khmer: next words, completions and typo fixes as in Khmer mode
+  await pg.fill('#text', 'ខ្ញុំ ចូលចិត្ត ');
+  seen['auto after verb'] = await chips();
+  if (!seen['auto after verb'].some(c => c.includes('ញ៉ាំ'))) fail(`Auto: ញ៉ាំ should follow ចូលចិត្ត: ${seen['auto after verb']}`);
+  await pg.fill('#text', 'ស្រលាង');
+  seen['auto typo'] = await chips();
+  if (!seen['auto typo'].some(c => c.includes('ស្រលាញ់'))) fail(`Auto: typo ស្រលាង should suggest ស្រលាញ់: ${seen['auto typo']}`);
+  // the page starts in Auto
+  await pg.reload();
+  if ((await pg.getAttribute('#m-auto', 'aria-pressed')) !== 'true') fail('the page should start in Auto mode');
   strips[name] = seen;
 
   if (errors.length) fail('page errors: ' + errors.join('; '));
@@ -103,4 +159,4 @@ if (strips['JS engine'] && strips['WASM engine']) {
 }
 await browser.close();
 if (result.length) { console.error('FAIL\n' + result.join('\n')); process.exit(1); }
-console.log(`OK on ${pages.map(p => p.name).join(' + ')}: series charts, rule spelling, typing flows` + (pages.length > 1 ? ', and identical suggestions in the UI' : ''));
+console.log(`OK on ${pages.map(p => p.name).join(' + ')}: series charts, rule spelling, typing flows (JS, Latin, English, Auto)` + (pages.length > 1 ? ', and identical suggestions in the UI' : ''));

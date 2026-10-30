@@ -2,9 +2,10 @@
 //! Built from `data.json` + `lexicon.json` (interchange format) or loaded from the compiled `khdata.bin`.
 use crate::cluster::{cluster_offsets, clusters};
 use crate::english::en_key;
-use crate::romanize::romanize;
+use crate::romanize::romanize_with;
 use crate::romkey::rom_key;
 use crate::split_js_space;
+use crate::tables::Tables;
 use fst::{IntoStreamer, Streamer};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -116,6 +117,8 @@ pub struct Model {
     /// share of corpus tokens by first letter; ranks `compose` guesses
     pub prior: HashMap<char, f64>,
     pub max_len: usize,
+    /// the transliteration charts in use (the built-in ones unless a mapping file was given)
+    pub tables: Tables,
     /// cluster byte offsets for the first FUZZY_WORDS words
     cl: Vec<Box<[u32]>>,
 }
@@ -128,6 +131,21 @@ impl Model {
     /// Like `from_json`, plus the text of `english.json` (Khmer word -> comma separated English glosses)
     /// for English -> Khmer input.
     pub fn from_json_with_english(data: &str, lexicon: &str, english: Option<&str>) -> Result<Model, Error> {
+        Model::from_json_full(data, lexicon, english, None)
+    }
+
+    /// Like `from_json_with_english`, plus the text of a mapping file (`data/mapping.json`: the consonant and vowel
+    /// charts). `None` uses the built-in charts. The mapping decides the generated spellings and the rule guesses.
+    pub fn from_json_full(
+        data: &str,
+        lexicon: &str,
+        english: Option<&str>,
+        mapping: Option<&str>,
+    ) -> Result<Model, Error> {
+        let tables = match mapping {
+            Some(t) => Tables::from_json(t).map_err(Error::Json)?,
+            None => Tables::builtin().clone(),
+        };
         let d: JsonData = serde_json::from_str(data).map_err(|e| Error::Json(e.to_string()))?;
         let lex: HashMap<String, String> = serde_json::from_str(lexicon).map_err(|e| Error::Json(e.to_string()))?;
         if d.words.len() != d.freq.len() {
@@ -185,7 +203,7 @@ impl Model {
                     entries.push((k, i as u32, false));
                 }
             }
-            let g = romanize(w);
+            let g = romanize_with(&tables, w);
             let k = rom_key(&g);
             if !k.is_empty() && seen.insert(k.clone()) {
                 entries.push((k, i as u32, true));
@@ -227,6 +245,7 @@ impl Model {
             StrTable::new(&shown),
             (en_keys, en_w),
             None,
+            tables,
         )
     }
 
@@ -244,6 +263,7 @@ impl Model {
         shown: StrTable,
         (en_keys, en_w): (StrTable, Vec<u32>),
         fst_bytes: Option<Vec<u8>>,
+        tables: Tables,
     ) -> Result<Model, Error> {
         let nw = words.len();
         let sum: u64 = freq.iter().map(|&f| f as u64).sum();
@@ -308,6 +328,7 @@ impl Model {
             en_top,
             prior,
             max_len: max_len.min(24),
+            tables,
             cl,
         })
     }
@@ -417,10 +438,14 @@ impl Model {
             b.extend_from_slice(t.blob.as_bytes());
             b
         }
-        let meta = serde_json::json!({
+        let mut meta = serde_json::json!({
             "sentences": self.sentences, "tokens": self.tokens, "source": self.source,
             "vocab": self.vocab(), "n": self.n
         });
+        // charts other than the built-in ones travel with the data (the sound index was made with them)
+        if self.tables != *Tables::builtin() {
+            meta["mapping"] = serde_json::Value::String(self.tables.to_json());
+        }
         let mut out = MAGIC.to_vec();
         put(&mut out, meta.to_string().as_bytes());
         put(&mut out, &table(&self.words));
@@ -479,6 +504,10 @@ impl Model {
             Ok(StrTable { blob, off })
         }
         let meta: serde_json::Value = serde_json::from_slice(next()?).map_err(|e| Error::Format(e.to_string()))?;
+        let tables = match meta["mapping"].as_str() {
+            Some(t) => Tables::from_json(t).map_err(|e| Error::Format(format!("mapping in data file: {e}")))?,
+            None => Tables::builtin().clone(),
+        };
         let words = to_table(next()?)?;
         let freq = to_u32s(next()?)?;
         let bi = (to_u32s(next()?)?, to_u32s(next()?)?, to_u32s(next()?)?);
@@ -531,6 +560,7 @@ impl Model {
             shown,
             (en_keys, en_w),
             Some(fst_bytes),
+            tables,
         )
     }
 }

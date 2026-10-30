@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khmer admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;600&display=swap">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1><span class="kh" style="color:var(--accent)">ខ្មែរ</span> Khmer admin</h1><div id="nav"></div></header>
+  <p class="muted" style="margin:0">A local database for the language data of the Khmer autocomplete keyboard. Everything stays on this computer.</p>
+
+  <div style="display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+    <a class="card" href="/mapping.html" style="color:inherit;text-decoration:none">
+      <h2>Consonant &amp; vowel mapping</h2>
+      <p style="margin:0 0 8px">How Khmer letters and vowel signs are written in Latin letters: series, onsets, finals, vowel readings. The engine spells Khmer
+        words and guesses Khmer spellings from these tables. Try a change live before you save it.</p>
+      <span class="chip" id="s-map">…</span>
+    </a>
+    <a class="card" href="/dictionary.html" style="color:inherit;text-decoration:none">
+      <h2>Dictionary</h2>
+      <p style="margin:0 0 8px">The Khmer words with their Khmerlish spellings (lexicon) and English translations. Search, edit, add words, and try what a typed
+        word converts to.</p>
+      <span class="chip" id="s-dict">…</span>
+    </a>
+  </div>
+
+  <section class="card">
+    <h2>Files</h2>
+    <p style="margin-top:0">The engine reads <span class="mono">data/mapping.json</span>, <span class="mono">lexicon.json</span>, <span class="mono">english.json</span>
+      and <span class="mono">data.json</span>. <b>Export</b> writes them from the database; then rebuild what uses them:</p>
+    <pre class="mono card" style="margin:0 0 12px;overflow-x:auto">cargo run --release -p khcore --bin khbuild -- data/data.json data/lexicon.json khdata.bin data/english.json data/mapping.json
+python3 web/build_demo.py data/data.json</pre>
+    <div class="row">
+      <button class="primary" id="export">Export all to data/</button>
+      <a class="btn" href="/api/export/file?name=mapping.json" download>Download mapping.json</a>
+      <a class="btn" href="/api/export/file?name=lexicon.json" download>lexicon.json</a>
+      <a class="btn" href="/api/export/file?name=english.json" download>english.json</a>
+      <span class="grow"></span>
+      <button class="danger" id="reseed" title="Replace everything in the database with the JSON files in data/">Reload database from data/*.json</button>
+    </div>
+    <div id="msg" hidden role="alert" style="margin-top:8px"></div>
+    <p class="muted" style="margin-bottom:0;font-size:0.84rem">After exporting changed data, regenerate the golden test vectors (<span class="mono">node tests/golden/gen.mjs</span>): they are made from data/.</p>
+  </section>
+</div>
+<script src="/admin.js"></script>
+<script>
+"use strict";
+document.getElementById("nav").replaceWith(nav("/"));
+const $ = id => document.getElementById(id);
+async function stats() {
+  const s = await api("GET", "/api/stats");
+  $("s-map").textContent = s.consonants + " consonants · " + s.vowels + " vowel rows";
+  $("s-dict").textContent = s.words + " words · " + s.withSpellings + " Khmerlish · " + s.withGlosses + " English";
+}
+$("export").onclick = async () => {
+  try { const r = await api("POST", "/api/export", {}); showOk($("msg"), "Wrote " + Object.entries(r.written).map(([k, v]) => k + " (" + v + " bytes)").join(", ") + " to " + r.folder); }
+  catch (e) { showErrors($("msg"), e); }
+};
+$("reseed").onclick = async () => {
+  if (!confirm("Replace everything in the database with the JSON files in data/? Edits that you have not exported are lost.")) return;
+  try { await api("POST", "/api/seed", { confirm: "replace" }); showOk($("msg"), "The database now matches data/*.json"); stats(); }
+  catch (e) { showErrors($("msg"), e); }
+};
+stats().catch(e => showErrors($("msg"), e));
+</script>
+</body>
+</html>

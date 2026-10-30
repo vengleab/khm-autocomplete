@@ -2,9 +2,9 @@
 use khcore::Model;
 fn main() {
     let a: Vec<String> = std::env::args().collect();
-    // khbuild data.json lexicon.json out.bin [english.json]
-    if a.len() != 4 && a.len() != 5 {
-        eprintln!("usage: khbuild data.json lexicon.json khdata.bin [english.json]");
+    // khbuild data.json lexicon.json out.bin [english.json [mapping.json]]
+    if a.len() < 4 || a.len() > 6 {
+        eprintln!("usage: khbuild data.json lexicon.json khdata.bin [english.json [mapping.json]]");
         std::process::exit(2);
     }
     let rd = |p: &str| {
@@ -14,7 +14,8 @@ fn main() {
         })
     };
     let english = a.get(4).map(|p| rd(p));
-    let m = Model::from_json_with_english(&rd(&a[1]), &rd(&a[2]), english.as_deref()).unwrap_or_else(|e| {
+    let mapping = a.get(5).map(|p| rd(p));
+    let m = Model::from_json_full(&rd(&a[1]), &rd(&a[2]), english.as_deref(), mapping.as_deref()).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1)
     });

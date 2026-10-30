@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khmer admin: mapping</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;600&display=swap">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Consonant &amp; vowel mapping</h1>
+    <div id="nav"></div>
+  </header>
+
+  <section class="card" aria-label="Actions">
+    <div class="row">
+      <button class="primary" id="save" disabled>Save</button>
+      <button id="revert" disabled>Revert changes</button>
+      <button id="reset" title="Load the built-in charts into the editor (not saved until you press Save)">Load built-in default</button>
+      <label class="row" style="gap:4px">History
+        <select id="history" style="width:auto"><option value="">older versions…</option></select>
+      </label>
+      <button id="loadver" disabled>Load version</button>
+      <span class="grow"></span>
+      <span id="state" class="chip">loading…</span>
+      <button id="export" title="Write data/mapping.json (and the other data files) from the database">Export to data/</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">
+      The engine builds its Khmer&nbsp;&rarr;&nbsp;Latin spellings and its Latin&nbsp;&rarr;&nbsp;Khmer rule guesses from these tables.
+      Save stores them in the database; <b>Export</b> writes <span class="mono">data/mapping.json</span>, which <span class="mono">khbuild</span>,
+      the demo page and the apps read (see <span class="mono">admin/README.md</span>).
+    </p>
+    <div id="msg" hidden role="alert"></div>
+  </section>
+
+  <div class="cols">
+    <main style="display:grid;gap:16px;min-width:0">
+      <section class="card" aria-labelledby="h-cons">
+        <h2 id="h-cons">Consonants</h2>
+        <p class="muted" style="margin-top:0"><b>Series</b>: A = first series, O = second series (the same vowel sign sounds different after each).
+          <b>Onset</b>: how the letter is written at the start of a syllable. <b>Final</b>: how it is written at the end of a syllable.
+          <b>៉ / ៊</b>: the letter can take muusikatoan (&rarr; A series) / triisap (&rarr; O series).</p>
+        <div class="scroll"><table id="t-cons"><thead><tr>
+          <th>Letter</th><th>Series</th><th>Onset</th><th>Final</th><th title="can take muusikatoan ៉ (becomes first series)">៉</th><th title="can take triisap ៊ (becomes second series)">៊</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:8px"><button id="add-cons">Add consonant</button></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-vow">
+        <h2 id="h-vow">Vowels</h2>
+        <p class="muted" style="margin-top:0">Readings after a first-series (A) and a second-series (O) consonant, separated by spaces. The <b>first</b> reading is what
+          the engine writes when it spells a Khmer word in Latin; the others are also understood when you type Latin. Lowercase a&ndash;z only.
+          The sign can be a pair such as ាំ or ុះ; the first row (empty sign) is the inherent vowel.</p>
+        <div class="scroll"><table id="t-vow"><thead><tr>
+          <th>Sign</th><th>After A (first series)</th><th>After O (second series)</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:8px"><button id="add-vow">Add vowel</button></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-fin">
+        <h2 id="h-fin">Finals (Latin &rarr; Khmer)</h2>
+        <p class="muted" style="margin-top:0">What you may type at the end of a syllable, and the letters it can be. The engine's rule guesses use this.
+          Add <span class="mono">b</span> &rarr; ប to make <span class="mono">leab</span> read as លាប.</p>
+        <div class="scroll"><table id="t-fin"><thead><tr><th>Latin</th><th>Letters</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:8px"><button id="add-fin">Add final</button></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-ons">
+        <h2 id="h-ons">Extra onsets (Latin &rarr; Khmer)</h2>
+        <p class="muted" style="margin-top:0">Further ways to type the start of a syllable, on top of the onsets of the consonants above
+          (for example <span class="mono">g</span> &rarr; គ, <span class="mono">j</span> &rarr; ចជ). An entry with the same Latin as a consonant's onset replaces it.</p>
+        <div class="scroll"><table id="t-ons"><thead><tr><th>Latin</th><th>Letters</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:8px"><button id="add-ons">Add onset</button></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-ind">
+        <h2 id="h-ind">Independent vowels (Khmer &rarr; Latin)</h2>
+        <div class="scroll"><table id="t-ind"><thead><tr><th>Letter</th><th>Latin</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row" style="margin-top:8px"><button id="add-ind">Add independent vowel</button></div>
+      </section>
+    </main>
+
+    <aside class="tools" aria-label="Try the mapping">
+      <section class="card">
+        <h2>Try it (uses the unsaved tables)</h2>
+        <label for="try-kh" class="muted">Khmer word &rarr; Latin spelling</label>
+        <input id="try-kh" class="kh khmer" type="text" lang="km" autocomplete="off" spellcheck="false" placeholder="លាប">
+        <p id="out-kh" class="mono" style="margin:6px 0 14px">&nbsp;</p>
+        <label for="try-lat" class="muted">Latin &rarr; Khmer rule guesses and dictionary matches</label>
+        <input id="try-lat" class="lat" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="leab">
+        <div class="row" style="margin-top:6px" id="samples"></div>
+        <div id="out-lat" style="margin-top:8px"></div>
+        <p class="muted" id="try-note" style="font-size:0.8rem"></p>
+      </section>
+    </aside>
+  </div>
+</div>
+<script src="/admin.js"></script>
+<script>
+"use strict";
+document.getElementById("nav").replaceWith(nav("/mapping.html"));
+const $ = id => document.getElementById(id);
+let saved = null, savedText = "", draft = null, errors = [], engine = null, KE = null;
+
+const clone = x => JSON.parse(JSON.stringify(x));
+const text = () => JSON.stringify(draft);
+const dirty = () => text() !== savedText;
+
+function setState() {
+  const d = dirty(), bad = errors.length > 0;
+  $("state").className = "chip " + (bad ? "bad" : d ? "warn" : "ok");
+  $("state").textContent = bad ? errors.length + " problem" + (errors.length > 1 ? "s" : "") : d ? "unsaved changes" : "saved";
+  $("save").disabled = !d || bad;
+  $("revert").disabled = !d;
+  if (bad) { $("msg").className = "msg err"; $("msg").replaceChildren(h("ul", { style: "margin:0;padding-left:18px" }, errors.map(e => h("li", { text: e })))); $("msg").hidden = false; }
+  else if (!$("msg").dataset.keep) $("msg").hidden = true;
+}
+
+const validate = debounce(async () => {
+  try {
+    const r = await api("POST", "/api/mapping/validate", draft);
+    errors = r.errors;
+  } catch (e) { errors = [e.message]; }
+  setState();
+  if (!errors.length) scheduleEngine();
+}, 250);
+function touched() { $("msg").dataset.keep = ""; setState(); validate(); }
+
+// ---- small editors
+function textInput(obj, key, cls, opts = {}) {
+  const i = h("input", { type: "text", class: cls, value: obj[key] ?? "", autocomplete: "off", spellcheck: "false", "aria-label": opts.label || key, placeholder: opts.placeholder || null, lang: opts.lang || null });
+  i.addEventListener("input", () => { obj[key] = opts.get ? opts.get(i.value) : i.value; touched(); });
+  return i;
+}
+function listInput(obj, key, cls, label) {          // an array of readings, edited as space-separated text
+  const i = h("input", { type: "text", class: cls, value: obj[key].join(" "), autocomplete: "off", spellcheck: "false", "aria-label": label });
+  i.addEventListener("input", () => { obj[key] = i.value.split(/\s+/).filter(Boolean); touched(); });
+  return i;
+}
+function mover(list, i, redraw) {
+  const mv = d => () => { const j = i + d; if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j], list[i]]; redraw(); touched(); };
+  return [
+    h("button", { class: "icon", title: "Move up", "aria-label": "Move up", text: "↑", onclick: mv(-1), disabled: i === 0 }),
+    h("button", { class: "icon", title: "Move down", "aria-label": "Move down", text: "↓", onclick: mv(1), disabled: i === list.length - 1 }),
+    h("button", { class: "icon danger", title: "Delete this row", "aria-label": "Delete this row", text: "✕", onclick: () => { list.splice(i, 1); redraw(); touched(); } }),
+  ];
+}
+
+function drawConsonants() {
+  const tb = $("t-cons").tBodies[0]; tb.replaceChildren();
+  draft.consonants.forEach((c, i) => {
+    const series = h("select", { "aria-label": "Series of " + c.letter }, ["A", "O"].map(s => h("option", { value: s, text: s, selected: c.series === s })));
+    series.addEventListener("change", () => { c.series = series.value; touched(); });
+    const flag = (k, label) => { const cb = h("input", { type: "checkbox", checked: !!c[k], "aria-label": label + " " + c.letter }); cb.addEventListener("change", () => { c[k] = cb.checked; touched(); }); return cb; };
+    tb.append(h("tr", {},
+      h("td", {}, textInput(c, "letter", "letter kh", { label: "Letter", lang: "km" })),
+      h("td", {}, series),
+      h("td", {}, textInput(c, "onset", "lat", { label: "Onset of " + c.letter })),
+      h("td", {}, textInput(c, "final", "lat", { label: "Final of " + c.letter })),
+      h("td", { style: "text-align:center" }, flag("toA", "can take ៉")),
+      h("td", { style: "text-align:center" }, flag("toO", "can take ៊")),
+      h("td", { style: "white-space:nowrap" }, mover(draft.consonants, i, drawConsonants))));
+  });
+}
+function drawVowels() {
+  const tb = $("t-vow").tBodies[0]; tb.replaceChildren();
+  draft.vowels.forEach((v, i) => {
+    tb.append(h("tr", {},
+      h("td", {}, textInput(v, "sign", "kh khmer", { label: "Vowel sign", lang: "km", placeholder: "(inherent)" })),
+      h("td", {}, listInput(v, "A", "lat", "Readings after a first-series consonant")),
+      h("td", {}, listInput(v, "O", "lat", "Readings after a second-series consonant")),
+      h("td", { style: "white-space:nowrap" }, mover(draft.vowels, i, drawVowels))));
+  });
+}
+function drawPairs(tableId, list, k1, k2, c1, c2, redraw) {
+  const tb = $(tableId).tBodies[0]; tb.replaceChildren();
+  list.forEach((e, i) => tb.append(h("tr", {},
+    h("td", {}, textInput(e, k1, c1, { label: k1 })),
+    h("td", {}, textInput(e, k2, c2, { label: k2, lang: c2.includes("khmer") ? "km" : null })),
+    h("td", { style: "white-space:nowrap" }, mover(list, i, redraw)))));
+}
+const drawFinals = () => drawPairs("t-fin", draft.finals, "latin", "letters", "lat", "kh khmer", drawFinals);
+const drawOnsets = () => drawPairs("t-ons", draft.onsetExtra, "latin", "letters", "lat", "kh khmer", drawOnsets);
+const drawIndep = () => drawPairs("t-ind", draft.independent, "letter", "latin", "kh khmer", "lat", drawIndep);
+function drawAll() { drawConsonants(); drawVowels(); drawFinals(); drawOnsets(); drawIndep(); setState(); }
+
+$("add-cons").onclick = () => { draft.consonants.push({ letter: "", series: "A", onset: "", final: "", toA: false, toO: false }); drawConsonants(); touched(); };
+$("add-vow").onclick = () => { draft.vowels.push({ sign: "", A: ["a"], O: ["o"] }); drawVowels(); touched(); };
+$("add-fin").onclick = () => { draft.finals.push({ latin: "", letters: "" }); drawFinals(); touched(); };
+$("add-ons").onclick = () => { draft.onsetExtra.push({ latin: "", letters: "" }); drawOnsets(); touched(); };
+$("add-ind").onclick = () => { draft.independent.push({ letter: "", latin: "" }); drawIndep(); touched(); };
+
+// ---- load / save
+async function history() {
+  const list = await api("GET", "/api/mapping/history");
+  const sel = $("history");
+  sel.replaceChildren(h("option", { value: "", text: list.length ? "older versions…" : "no older versions yet" }), ...list.map(v => h("option", { value: v.id, text: "saved " + v.savedAt + " UTC" })));
+  $("loadver").disabled = !list.length;
+}
+async function load() {
+  saved = await api("GET", "/api/mapping");
+  savedText = JSON.stringify(saved); draft = clone(saved); errors = [];
+  $("msg").dataset.keep = ""; drawAll(); scheduleEngine(); await history();
+}
+$("save").onclick = async () => {
+  try {
+    saved = await api("PUT", "/api/mapping", draft);
+    savedText = JSON.stringify(saved); draft = clone(saved);
+    drawAll(); await history();
+    $("msg").dataset.keep = "1"; showOk($("msg"), "Saved. Press Export to write data/mapping.json for the engine.");
+    toast("Mapping saved");
+  } catch (e) { showErrors($("msg"), e); }
+};
+$("revert").onclick = () => { draft = JSON.parse(savedText); errors = []; $("msg").dataset.keep = ""; drawAll(); validate(); };
+$("reset").onclick = async () => { draft = await api("GET", "/api/mapping/default"); drawAll(); validate(); toast("Built-in charts loaded: press Save to keep them"); };
+$("loadver").onclick = async () => {
+  const id = $("history").value; if (!id) return;
+  draft = await api("GET", "/api/mapping/version?id=" + encodeURIComponent(id)); drawAll(); validate(); toast("Old version loaded: press Save to keep it");
+};
+$("export").onclick = async () => {
+  if (dirty() && !confirm("You have unsaved changes; they will not be in the export. Export the saved mapping anyway?")) return;
+  try { const r = await api("POST", "/api/export", {}); $("msg").dataset.keep = "1"; showOk($("msg"), "Wrote " + Object.keys(r.written).join(", ") + " to " + r.folder); }
+  catch (e) { showErrors($("msg"), e); }
+};
+window.addEventListener("beforeunload", e => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---- try it: the JS reference engine with the draft tables
+const scheduleEngine = debounce(() => { engine = null; runTry(); }, 200);
+function theEngine() {
+  if (!engine && KE && !errors.length) { KE.setMapping(draft); engine = new KE.Engine(KE.SEED); }
+  return engine;
+}
+function runTry() {
+  if (!KE) return;
+  const e = theEngine();
+  const kh = $("try-kh").value.trim(), lat = $("try-lat").value.trim();
+  $("out-kh").textContent = !e ? (errors.length ? "fix the problems above first" : "…") : kh ? KE.romanize(KE.normalize(kh)) || "(nothing)" : " ";
+  const box = $("out-lat"); box.replaceChildren();
+  if (!e || !lat) return;
+  const rules = KE.compose(lat, e.prior);
+  const near = e.romSuggest(lat, { prev: "^" }, 6);
+  if (!rules.length && !near.length) box.append(h("p", { class: "muted", text: "No rule guess and no dictionary word sounds like that." }));
+  if (rules.length) box.append(h("div", { class: "muted", text: "Rule guesses" }), h("table", {}, h("tbody", {}, rules.map(r => h("tr", {}, h("td", { class: "kh", style: "font-size:1.2rem", text: r.word }), h("td", { class: "mono muted", style: "font-size:0.74rem", text: r.why }))))));
+  if (near.length) box.append(h("div", { class: "muted", style: "margin-top:6px", text: "Dictionary words (Khmerlish)" }), h("table", {}, h("tbody", {}, near.map(r => h("tr", {}, h("td", { class: "kh", style: "font-size:1.2rem", text: r.word }), h("td", { class: "mono muted", style: "font-size:0.74rem", text: r.kind + " · " + r.rom }))))));
+}
+$("try-kh").addEventListener("input", runTry);
+$("try-lat").addEventListener("input", runTry);
+["leab", "leap", "kos", "ten", "phnom", "ngeak"].forEach(s => $("samples").append(h("button", { class: "chip", style: "cursor:pointer", text: s, onclick: () => { $("try-lat").value = s; runTry(); } })));
+["លាប", "ក្នុង", "កោះ", "ម៉ូ"].forEach(s => $("samples").append(h("button", { class: "chip kh", style: "cursor:pointer", text: s, onclick: () => { $("try-kh").value = s; runTry(); } })));
+
+(async () => {
+  try {
+    await load();
+    KE = await loadEngine();
+    $("try-note").textContent = "Dictionary: " + KE.SEED.words.length + " words. Rule guesses are made from the tables alone; dictionary matches also use the spellings in the dictionary page.";
+    runTry();
+  } catch (e) { showErrors($("msg"), e); }
+})();
+</script>
+</body>
+</html>

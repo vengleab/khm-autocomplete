@@ -22,6 +22,12 @@ KEYS = {
  "AB05": ("b", 11, 0x30), "AB06": ("n", 45, 0x31), "AB07": ("m", 46, 0x32), "AB08": (",", 43, 0x33),
  "AB09": (".", 47, 0x34), "AB10": ("/", 44, 0x35),
 }
+# US Shift pairs: the character a US keyboard types with Shift -> the key, named by its unshifted character.
+# Auto mode reads ASCII that was typed on a US keyboard, so "?" means "the Shift level of the / key".
+SHIFTED_US = {"!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+              "_": "-", "+": "=", "~": "`", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/"}
+assert all(b in [k[0] for k in KEYS.values()] for b in SHIFTED_US.values())
+
 NAMED = {"guillemotleft": "«", "guillemotright": "»", "exclam": "!", "at": "@", "quotedbl": '"',
          "dollar": "$", "percent": "%", "EuroSign": "€", "asterisk": "*", "parenleft": "(", "parenright": ")",
          "braceleft": "{", "braceright": "}", "equal": "=", "backslash": "\\", "comma": ",", "period": ".",
@@ -60,4 +66,14 @@ for name, (us, mac, win) in KEYS.items():
     a, b, c, d = rows[name]
     us_l = "'\\\\'" if us == "\\" else ("'\\''" if us == "'" else "'%s'" % us)
     print("    Key { us: %s, mac: %d, win: 0x%02X, levels: [%s, %s, %s, %s] }, // %s" % (us_l, mac, win, lit(a), lit(b), lit(c), lit(d), name))
+print("];")
+
+def ch(c):
+    return {"\\": "'\\\\'", "'": "'\\''"}.get(c, "'%s'" % c)
+
+print()
+print("/// US Shift pairs: (the character a US keyboard types with Shift, the unshifted character of its key).")
+print("pub const SHIFTED_US: [(char, char); %d] = [" % len(SHIFTED_US))
+for shifted, base in SHIFTED_US.items():
+    print("    (%s, %s)," % (ch(shifted), ch(base)))
 print("];")

@@ -3,10 +3,12 @@
 import CKhCore
 import Foundation
 
+/// The engine's input modes (`KH_MODE_*`). The app uses only `.auto`; the others stay for tools and tests.
 public enum InputMode: Int32 {
-    case khmer = 0    // type Khmer script (Khmer NiDA layout), get completions and next words
+    case khmer = 0    // Khmer script only: completions and next words
     case latin = 1    // type Khmer in Latin letters (Khmerlish)
     case english = 2  // type English words, get Khmer suggestions
+    case auto = 3     // the one Khmer state: reads the typed run as Khmerlish, English, NiDA layout keys, or Khmer script
 }
 
 public enum SpecialKey: Int32 {
@@ -29,11 +31,13 @@ public struct Candidate: Decodable, Equatable {
     /// Latin spelling (Latin mode) or matched English gloss (English mode)
     public let roman: String?
     public let why: String?
+    /// Auto mode: which reading produced it ("khmerlish", "english", "nida", "raw"); nil in the other modes
+    public let source: String?
     /// key presses this suggestion saves
     public let gain: Int
 
     enum CodingKeys: String, CodingKey {
-        case word, kind, replace, append, prob, roman, why, gain
+        case word, kind, replace, append, prob, roman, why, source, gain
         case replaceLenUtf16 = "replace_len_utf16"
     }
 }
@@ -102,8 +106,9 @@ public final class KhmerEngine {
         return .passThrough
     }
 
-    /// What a physical key types in Khmer mode (Khmer NiDA layout), or nil when the key is not part of it.
-    /// `keyCode` is `NSEvent.keyCode`; `altgr` is the Option key.
+    /// What a physical key types on the Khmer (NiDA) layout, or nil when the key is not part of it.
+    /// `keyCode` is `NSEvent.keyCode`; `altgr` is the Option key. The app no longer calls this: in the Khmer state the
+    /// keys are not remapped (the engine reads the typed letters itself), so it is kept for tools and tests.
     public static func layoutMap(macKeyCode: UInt16, shift: Bool, altgr: Bool) -> String? {
         guard let p = kh_layout_map(KH_KEYCODE_MAC, UInt32(macKeyCode), shift ? 1 : 0, altgr ? 1 : 0) else { return nil }
         defer { kh_string_free(p) }

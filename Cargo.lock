@@ -83,7 +83,6 @@ name = "khtsf"
 version = "0.1.0"
 dependencies = [
  "khipc",
- "khlayout",
  "windows",
  "windows-core",
  "windows-numerics",

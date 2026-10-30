@@ -62,6 +62,14 @@ int main(int argc, char **argv) {
     CHECK(s && strstr(s, "ស្រលាញ់"), "completion for ស្រ");
     kh_string_free(s);
 
+    /* Auto mode: keys are not remapped; the run is read as Khmerlish, English or NiDA keys, each with its own source */
+    char *a = kh_key_action(e, "xjJuM", KH_MODE_AUTO, KH_KEY_SPACE, NULL);
+    CHECK(a && strstr(a, "ខ្ញុំ") && strstr(a, "\"source\":\"nida\""), "Auto: NiDA keys xjJuM + Space give ខ្ញុំ");
+    kh_string_free(a);
+    a = kh_suggest(e, "windows", KH_MODE_AUTO, NULL);
+    CHECK(a && strstr(a, "\"kind\":\"layout\"") && strstr(a, "\"kind\":\"raw\""), "Auto: unknown text offers layout and raw");
+    kh_string_free(a);
+
     /* errors are reported, not fatal */
     CHECK(kh_suggest(NULL, "x", KH_MODE_KHMER, NULL) == NULL, "NULL engine gives NULL");
     CHECK(kh_last_error() != NULL, "and an error message");

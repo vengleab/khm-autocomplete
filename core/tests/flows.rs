@@ -214,10 +214,17 @@ fn compiled_format_matches_json_loading() {
         let b = Engine::from_model(Model::from_bytes(&bytes).unwrap());
         let g = golden(&format!("engine_{name}.json"));
         let mut f = Fails::default();
-        for c in g["flows"].as_array().unwrap().iter().chain(g["flowsEn"].as_array().unwrap()) {
+        let all = g["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(g["flowsEn"].as_array().unwrap())
+            .chain(g["flowsAuto"].as_array().unwrap());
+        for c in all {
             let mode = match s(&c["mode"]) {
                 "latin" => Mode::Latin,
                 "english" => Mode::English,
+                "auto" => Mode::Auto,
                 _ => Mode::Khmer,
             };
             let (t, j) = (s(&c["text"]), c["completed"].as_str());
@@ -277,6 +284,219 @@ fn corrupt_compiled_data_is_an_error_not_a_panic() {
             let e = Engine::from_model(m);
             let _ = e.suggest("ខ្ញុំ ស្រ", Mode::Khmer, None);
             let _ = e.suggest("knyom", Mode::Latin, None);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------- Auto mode
+
+/// The Khmer state of the shells: nothing is remapped, ASCII stays in the document until Space converts it.
+fn type_auto(e: &Engine, input: &str) -> String {
+    type_in(e, Mode::Auto, input)
+}
+
+fn kinds(c: &[khcore::Candidate]) -> Vec<Kind> {
+    c.iter().map(|x| x.kind).collect()
+}
+
+#[test]
+fn auto_flow_converts_what_was_typed() {
+    let e = seed_engine();
+    // Khmerlish
+    assert_eq!(type_auto(&e, "knhom chong "), "ខ្ញុំចង់");
+    assert_eq!(type_auto(&e, "knyom soksabay "), "ខ្ញុំសុខសប្បាយ");
+    // English
+    assert_eq!(type_auto(&e, "water "), "ទឹក");
+    assert_eq!(type_auto(&e, "thank you "), "អរគុណអ្នក");
+    assert_eq!(type_auto(&e, "eating rice love cambodia "), "ញ៉ាំបាយស្រលាញ់កម្ពុជា");
+    // a short English word that is also a Khmerlish spelling goes to Khmerlish (same tier, Khmerlish first): `i` is អ្វី here
+    assert_eq!(type_auto(&e, "i "), "អ្វី");
+    assert_eq!(type_in(&e, Mode::English, "i "), "ខ្ញុំ");
+    // keys of the Khmer (NiDA) layout, typed as the ASCII of a US keyboard: x j J u M -> ខ ្ ញ ុ ំ
+    assert_eq!(type_auto(&e, "xjJuM "), "ខ្ញុំ");
+    // all three in one sentence, and Khmer script typed with the OS keyboard in between
+    assert_eq!(type_auto(&e, "knhom water xjJuM "), "ខ្ញុំទឹកខ្ញុំ");
+    // the space after Khmer script, like a space with nothing pending, is an ordinary space
+    assert_eq!(type_auto(&e, "ខ្ញុំ chong "), "ខ្ញុំ ចង់");
+    assert_eq!(type_auto(&e, " "), " ");
+    assert_eq!(type_auto(&e, "ខ្ញុំ "), "ខ្ញុំ ");
+}
+
+#[test]
+fn auto_unknown_text_stays_as_typed_and_offers_two_chips() {
+    let e = seed_engine();
+    // `windows` is no Khmerlish word, has no gloss and its NiDA reading is no word
+    assert_eq!(type_auto(&e, "windows "), "windows ");
+    let c = e.suggest("windows", Mode::Auto, None);
+    assert_eq!(kinds(&c), [Kind::Layout, Kind::Raw]);
+    assert_eq!(c[0].word, "ឹិនដោឹស"); // the keys read as Khmer
+    assert_eq!(c[0].roman.as_deref(), Some("NiDA"));
+    assert_eq!(c[0].source, Some("nida"));
+    assert_eq!((c[1].word.as_str(), c[1].source), ("windows", Some("raw")));
+    assert!(c.iter().all(|x| x.replace == "windows" && x.replace_len_utf16 == 7));
+    // Enter leaves a raw-only list alone (it is a newline); Tab is the explicit request: the NiDA reading
+    assert!(matches!(e.key_action("windows", Mode::Auto, Key::Enter, None), KeyAction::PassThrough));
+    match e.key_action("windows", Mode::Auto, Key::Tab, None) {
+        KeyAction::Insert(c) => assert_eq!((c.word.as_str(), c.kind), ("ឹិនដោឹស", Kind::Layout)),
+        a => panic!("{a:?}"),
+    }
+    // picking the raw chip keeps the text and ends the run
+    let raw = &c[1];
+    assert_eq!(replace_tail("windows", raw.replace_len_utf16, &raw.word), "windows");
+    // typos only: weak candidates stay in front of the chips, Space still does not convert
+    let t = e.suggest("sralan", Mode::Auto, None);
+    assert_eq!(t[0].word, "ស្រលាញ់");
+    assert_eq!(t[0].kind, Kind::Fuzzy);
+    assert_eq!(&kinds(&t)[t.len() - 2..], [Kind::Layout, Kind::Raw]);
+    assert_eq!(type_auto(&e, "sralan "), "sralan ");
+    // Enter takes a real candidate even when it is only a typo fix
+    match e.key_action("sralan", Mode::Auto, Key::Enter, None) {
+        KeyAction::Insert(c) => assert_eq!(c.word, "ស្រលាញ់"),
+        a => panic!("{a:?}"),
+    }
+    // digits never auto-convert; Tab can still read them as Khmer digits
+    assert_eq!(type_auto(&e, "123 "), "123 ");
+    match e.key_action("123", Mode::Auto, Key::Tab, None) {
+        KeyAction::Insert(c) => assert_eq!(c.word, "១២៣"),
+        a => panic!("{a:?}"),
+    }
+}
+
+#[test]
+fn auto_space_converts_only_a_confident_top() {
+    let e = seed_engine();
+    // a half-typed Khmerlish word and a half-typed English word: shown, not applied (Latin mode would convert the first)
+    assert_eq!(type_auto(&e, "phnom "), "phnom ");
+    assert_eq!(type_in(&e, Mode::Latin, "phnom "), "ភ្នំពេញ");
+    assert_eq!(type_auto(&e, "wate "), "wate ");
+    // Tab takes the top, a prefix match included
+    match e.key_action("phnom", Mode::Auto, Key::Tab, None) {
+        KeyAction::Insert(c) => assert_eq!((c.word.as_str(), c.source), ("ភ្នំពេញ", Some("khmerlish"))),
+        a => panic!("{a:?}"),
+    }
+    // an unfinished NiDA word offers its completions at tier 1; Space leaves it, Tab completes it
+    let p = e.suggest("xjJ", Mode::Auto, None);
+    assert_eq!((p[0].word.as_str(), p[0].kind, p[0].source), ("ខ្ញុំ", Kind::Prefix, Some("nida")));
+    assert_eq!(type_auto(&e, "xjJ "), "xjJ ");
+    assert!(matches!(e.key_action("xjJ", Mode::Auto, Key::Tab, None), KeyAction::Insert(_)));
+    // a glossed English inflection converts: `meeting` -> meet (the glossary entry), the cost of one Khmer state
+    assert_eq!(type_auto(&e, "meeting "), "ជួប");
+}
+
+#[test]
+fn auto_merge_order_and_dedupe() {
+    let e = seed_engine();
+    // `wat` is Khmerlish វត្ត (exact) and a prefix of English "water" (ទឹក): tier first, then source
+    let c = e.suggest("wat", Mode::Auto, None);
+    assert_eq!((c[0].word.as_str(), c[0].source), ("វត្ត", Some("khmerlish")));
+    assert_eq!((c[1].word.as_str(), c[1].source), ("ទឹក", Some("english")));
+    // one chip per word
+    let mut words: Vec<&str> = c.iter().map(|x| x.word.as_str()).collect();
+    words.sort();
+    words.dedup();
+    assert_eq!(words.len(), c.len());
+    // a NiDA word is a hit between exact (0) and prefix (1)
+    let n = e.suggest("xjJuM", Mode::Auto, None);
+    assert_eq!((n[0].word.as_str(), n[0].source, n[0].kind), ("ខ្ញុំ", Some("nida"), Kind::Exact));
+}
+
+#[test]
+fn auto_text_ending_in_khmer_uses_the_khmer_script_path() {
+    let e = seed_engine();
+    let a = e.suggest("ខ្ញុំ ចូលចិត្ត ", Mode::Auto, None);
+    let k = e.suggest("ខ្ញុំ ចូលចិត្ត ", Mode::Khmer, None);
+    assert!(a.iter().any(|x| x.word == "ញ៉ាំ"));
+    assert_eq!(digest(&a), digest(&k));
+    assert!(a.iter().all(|x| x.source.is_none()));
+    // typos and completions of Khmer script, as before
+    assert_eq!(e.suggest("ស្រ", Mode::Auto, None)[0].word, "ស្រលាញ់");
+    assert!(e.suggest("ស្រលាង", Mode::Auto, None).iter().any(|x| x.word == "ស្រលាញ់"));
+    // Enter is the app's, Tab takes the top, Space is a plain space
+    assert!(matches!(e.key_action("ខ្ញុំ ", Mode::Auto, Key::Enter, None), KeyAction::PassThrough));
+    assert!(matches!(e.key_action("ខ្ញុំ ", Mode::Auto, Key::Space, None), KeyAction::PassThrough));
+    assert!(matches!(e.key_action("ស្រ", Mode::Auto, Key::Tab, None), KeyAction::Insert(_)));
+    // a word just accepted ends the run, even though the text before the caret ends in ASCII
+    let j = e.suggest("water", Mode::Auto, Some("ទឹក"));
+    assert!(j.iter().all(|x| x.source.is_none() && x.replace.is_empty()));
+    assert!(matches!(e.key_action("water", Mode::Auto, Key::Enter, Some("ទឹក")), KeyAction::PassThrough));
+}
+
+#[test]
+fn auto_spans_are_per_candidate() {
+    let e = seed_engine();
+    // punctuation before the run: Khmerlish and English replace the trailing letters, NiDA the whole run
+    let text = "hello,water";
+    let c = e.suggest(text, Mode::Auto, None);
+    assert_eq!((c[0].word.as_str(), c[0].source), ("ទឹក", Some("english")));
+    assert_eq!((c[0].replace.as_str(), c[0].replace_len_utf16), ("water", 5));
+    match e.key_action(text, Mode::Auto, Key::Space, None) {
+        KeyAction::Insert(c) => assert_eq!(replace_tail(text, c.replace_len_utf16, &c.word), "hello,ទឹក"),
+        a => panic!("{a:?}"),
+    }
+    assert_eq!(type_auto(&e, "hello,water "), "hello,ទឹក");
+    // the NiDA chips of the same run cover all of it
+    let all = e.suggest("hello,zzzz", Mode::Auto, None);
+    assert_eq!(kinds(&all), [Kind::Layout, Kind::Raw]);
+    assert!(all.iter().all(|x| x.replace == "hello,zzzz" && x.replace_len_utf16 == 10));
+    // keys of the Khmer layout use digits and punctuation too: `.` is ។ and `[` is ៀ
+    assert_eq!(khcore::suggest::nida_read("kd[").as_deref(), Some("កដៀ"));
+    assert_eq!(khcore::suggest::nida_read("a.").as_deref(), Some("ា។"));
+    // after Khmer script: the run starts where the ASCII starts
+    let k = e.suggest("ខ្ញុំwater", Mode::Auto, None);
+    assert_eq!((k[0].word.as_str(), k[0].replace.as_str(), k[0].replace_len_utf16), ("ទឹក", "water", 5));
+    // raw text with a zero-width space before the run: lengths count the raw UTF-16 units of the span only
+    let raw = "ខ្ញុំ\u{200B}water";
+    let r = e.suggest(raw, Mode::Auto, None);
+    assert_eq!((r[0].replace.as_str(), r[0].replace_len_utf16), ("water", 5));
+    // and a zero-width space inside the run is part of the raw span (the normalized run is "water" again)
+    let inner = "wa\u{200B}ter";
+    let i = e.suggest(inner, Mode::Auto, None);
+    assert_eq!(i[0].word, "ទឹក");
+    assert_eq!(i[0].replace_len_utf16, inner.encode_utf16().count());
+}
+
+#[test]
+fn auto_json_has_source_only_in_auto_mode() {
+    let e = seed_engine();
+    let a = khcore::api_json::candidates(&e.suggest("water", Mode::Auto, None));
+    let a: serde_json::Value = serde_json::from_str(&a).unwrap();
+    assert_eq!(a[0]["source"], "english");
+    assert_eq!(a[0]["gain"], 0);
+    let l = khcore::api_json::candidates(&e.suggest("knyom", Mode::Latin, None));
+    let l: serde_json::Value = serde_json::from_str(&l).unwrap();
+    assert!(l[0].get("source").is_none(), "other modes keep their JSON as it was");
+    let k = khcore::api_json::key_action(&e.key_action("water", Mode::Auto, Key::Space, None));
+    assert!(k.contains("\"source\":\"english\""));
+}
+
+#[test]
+fn auto_edges_do_not_panic() {
+    let e = seed_engine();
+    for t in [
+        "",
+        " ",
+        "\n",
+        "។",
+        "a",
+        "ក្",
+        "\u{17D2}",
+        "😀",
+        "ខ្ញុំ\u{200B}",
+        "-",
+        "'",
+        "x1",
+        "~",
+        "\\",
+        "\"",
+        "ខ្ញុំ😀abc",
+        "a\u{0301}b",
+        "ក៏water",
+    ] {
+        for j in [None, Some("ខ្ញុំ")] {
+            let _ = e.suggest(t, Mode::Auto, j);
+            for k in [Key::Space, Key::Enter, Key::Tab] {
+                let _ = e.key_action(t, Mode::Auto, k, j);
+            }
         }
     }
 }
